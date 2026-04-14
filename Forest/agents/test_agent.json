@@ -1,0 +1,22 @@
+{
+  "name": "test_agent",
+  "description": "User-submitted agent: test_agent",
+  "initial_prompt": "You are test_agent, a useful Forest agent.",
+  "created": "2026-04-07T02:33:09.572061",
+  "training_history": [
+    {
+      "cycle": 1,
+      "task": "improve overall usefulness and code quality",
+      "result_summary": "=== Deep Research Cycle Complete (with Critic) ===\nTarget: Improve agent: test_agent \u2014 improve overall usefulness and code quality\nDesign system: ollama\nRevisions: 1\n\nFinal output:\n\u2705 Revised output ready.\n[WORKER] \u2705 Clean LLM-generated Improve_agent_test_agent_\u2014_improve_overall_usefulness_and_code_q",
+      "score": 73
+    },
+    {
+      "cycle": 2,
+      "task": "improve overall usefulness and code quality",
+      "result_summary": "=== Deep Research Cycle Complete (with Critic) ===\nTarget: Improve agent: test_agent \u2014 improve overall usefulness and code quality\nDesign system: ollama\nRevisions: 1\n\nFinal output:\n\u2705 Revised output ready.\n[WORKER] \u2705 Clean LLM-generated Improve_agent_test_agent_\u2014_improve_overall_usefulness_and_code_q",
+      "score": 81
+    }
+  ],
+  "current_score": 81,
+  "status": "trained"
+}

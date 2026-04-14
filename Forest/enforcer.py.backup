@@ -1,0 +1,269 @@
+#!/usr/bin/env python3
+"""
+Forest Enforcer v3.0 — Ruthless, Real, CUS-Aligned
+Kills bad actors, blocks unsigned actions, forces human gate when needed.
+"""
+
+import subprocess
+import psutil
+import time
+from pathlib import Path
+from datetime import datetime
+import hashlib
+import os
+
+VAULT_DIR = Path.home() / "ForestVault"
+VAULT_DIR.mkdir(exist_ok=True)
+CRYPTEX_FILE = VAULT_DIR / "training_chain.json"
+
+def log_to_cryptex(event_type: str, details: str = ""):
+    timestamp = datetime.now().isoformat()
+    entry = f"{timestamp} | {event_type} | {details}"
+    h = hashlib.sha256(entry.encode()).hexdigest()[:24]
+    with open(CRYPTEX_FILE, "a") as f:
+        f.write(f"{entry} | Hash: {h}\n")
+    print(f"[ENFORCER] {event_type} | {details[:80]}... | Hash: {h}")
+
+class EnforcerTeam:
+    def __init__(self):
+        self.blocked_count = 0
+
+    def scan_swarm(self, status: dict = None):
+        """Real swarm scan — kills obviously bad sessions"""
+        print("[ENFORCER] Scanning active tmux sessions and processes...")
+        try:
+            result = subprocess.run(["tmux", "ls"], capture_output=True, text=True)
+            sessions = [line.split(":")[0] for line in result.stdout.splitlines() if line.strip()]
+            
+            for sess in sessions:
+                if "forest" in sess.lower() or sess in ["brain", "mouth", "forge", "warden"]:
+                    continue  # protected organs
+                print(f"[ENFORCER] Killing suspicious session: {sess}")
+                subprocess.run(["tmux", "kill-session", "-t", sess], stdout=subprocess.DEVNULL)
+                log_to_cryptex("SESSION_KILLED", sess)
+                self.blocked_count += 1
+        except Exception as e:
+            log_to_cryptex("SCAN_ERROR", str(e))
+
+        # Light process check
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmd = ' '.join(proc.info['cmdline'] or [])
+                if "ollama" in cmd and "--danger" in cmd:  # example bad flag
+                    print(f"[ENFORCER] Killing dangerous Ollama process {proc.info['pid']}")
+                    proc.kill()
+                    log_to_cryptex("PROCESS_KILLED", f"pid:{proc.info['pid']}")
+            except:
+                pass
+
+        return {"status": "scanned", "blocked": self.blocked_count}
+
+    def approve(self, action: str) -> bool:
+        """Human-gated approval for critical actions"""
+        print(f"\n🔒 ENFORCER GATE: {action}")
+        print("Type 'yes' to approve, anything else to BLOCK.")
+        
+        try:
+            choice = input("ENFORCER APPROVE? > ").strip().lower()
+            if choice == "yes":
+                log_to_cryptex("ACTION_APPROVED", action[:100])
+                return True
+            else:
+                log_to_cryptex("ACTION_BLOCKED", action[:100])
+                self.blocked_count += 1
+                return False
+        except:
+            log_to_cryptex("ACTION_BLOCKED", "input failed")
+            return False
+
+    def enforce_constitution(self, output: str) -> bool:
+        bad_phrases = ["hack", "steal", "phish real user", "install malware", "ddos"]
+        if any(phrase in output.lower() for phrase in bad_phrases):
+            log_to_cryptex("CONSTITUTION_VIOLATION", output[:80])
+            return False
+        return True
+
+enforcer = EnforcerTeam()
+
+print("=== Forest Enforcer v3.0 Loaded — Ruthless Mode Active ===")
+print("Use enforcer.scan_swarm() or enforcer.approve('action') from other organs.")
+
+# Persistent cryptex chain - added for real tamper-evidence
+CRYPTEX_LAST_HASH_FILE = VAULT_DIR / "cryptex_last_hash.txt"
+
+def load_last_hash():
+    if CRYPTEX_LAST_HASH_FILE.exists():
+        try:
+            with open(CRYPTEX_LAST_HASH_FILE) as f:
+                return f.read().strip()
+        except:
+            pass
+    return "GENESIS"
+
+def save_last_hash(h: str):
+    try:
+        with open(CRYPTEX_LAST_HASH_FILE, "w") as f:
+            f.write(h)
+    except:
+        pass
+
+# Updated log_to_cryptex with real chaining
+def log_to_cryptex(event_type: str, details: str = ""):
+    global LAST_HASH
+    timestamp = datetime.now().isoformat()
+    entry = f"{timestamp} | {event_type} | {details}"
+    full_input = LAST_HASH + entry
+    h = hashlib.sha256(full_input.encode()).hexdigest()[:24]
+    
+    with open(CRYPTEX_FILE, "a") as f:
+        f.write(f"{entry} | Prev: {LAST_HASH} | Hash: {h}\n")
+        f.flush()  # Ensure it's written immediately
+    
+    LAST_HASH = h
+    save_last_hash(h)
+    
+    print(f"[CRYPTEX] {event_type} | {details[:80]}... | Hash: {h}")
+
+# Persistent cryptex chain - added for real tamper-evidence
+CRYPTEX_LAST_HASH_FILE = VAULT_DIR / "cryptex_last_hash.txt"
+
+def load_last_hash():
+    if CRYPTEX_LAST_HASH_FILE.exists():
+        try:
+            with open(CRYPTEX_LAST_HASH_FILE) as f:
+                return f.read().strip()
+        except:
+            pass
+    return "GENESIS"
+
+def save_last_hash(h: str):
+    try:
+        with open(CRYPTEX_LAST_HASH_FILE, "w") as f:
+            f.write(h)
+    except:
+        pass
+
+# Updated log_to_cryptex with real chaining
+def log_to_cryptex(event_type: str, details: str = ""):
+    global LAST_HASH
+    timestamp = datetime.now().isoformat()
+    entry = f"{timestamp} | {event_type} | {details}"
+    full_input = LAST_HASH + entry
+    h = hashlib.sha256(full_input.encode()).hexdigest()[:24]
+    
+    with open(CRYPTEX_FILE, "a") as f:
+        f.write(f"{entry} | Prev: {LAST_HASH} | Hash: {h}\n")
+        f.flush()  # Ensure it's written immediately
+    
+    LAST_HASH = h
+    save_last_hash(h)
+    
+    print(f"[CRYPTEX] {event_type} | {details[:80]}... | Hash: {h}")
+
+# Persistent cryptex chain - real tamper-evident logging
+CRYPTEX_LAST_HASH_FILE = VAULT_DIR / "cryptex_last_hash.txt"
+
+def load_last_hash():
+    """Load the last hash from file or start with GENESIS"""
+    if CRYPTEX_LAST_HASH_FILE.exists():
+        try:
+            with open(CRYPTEX_LAST_HASH_FILE) as f:
+                return f.read().strip()
+        except:
+            pass
+    return "GENESIS"
+
+def save_last_hash(h: str):
+    """Save the current last hash to file"""
+    try:
+        with open(CRYPTEX_LAST_HASH_FILE, "w") as f:
+            f.write(h)
+    except:
+        pass
+
+# Replace the old log_to_cryptex with the real chained version
+def log_to_cryptex(event_type: str, details: str = ""):
+    global LAST_HASH
+    timestamp = datetime.now().isoformat()
+    entry = f"{timestamp} | {event_type} | {details}"
+    full_input = LAST_HASH + entry
+    h = hashlib.sha256(full_input.encode()).hexdigest()[:24]
+    
+    with open(CRYPTEX_FILE, "a") as f:
+        f.write(f"{entry} | Prev: {LAST_HASH} | Hash: {h}\n")
+        f.flush()   # Make sure it's written immediately
+    
+    LAST_HASH = h
+    save_last_hash(h)
+    
+    print(f"[CRYPTEX] {event_type} | {details[:80]}... | Hash: {h}")
+
+# Improved LLM-based constitution enforcement
+from langchain_ollama import ChatOllama
+from langchain_core.messages import HumanMessage, SystemMessage
+
+def enforce_constitution(self, output: str) -> bool:
+    """Real LLM-as-judge constitution check"""
+    if not output or len(output) < 10:
+        return True
+
+    try:
+        llm = ChatOllama(model="phi3:mini", temperature=0.0, timeout=30)
+
+        system_prompt = """You are a strict constitutional enforcer for the Forest system.
+Your ONLY job is to detect malicious, harmful, or unethical intent.
+Respond with EXACTLY one word: YES if the output promotes harm, hacking, phishing, malware, ddos, deception, or any violation of human autonomy.
+Respond with EXACTLY one word: NO if the output is safe, defensive, blue-team, educational, or neutral."""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=f"Output to evaluate:\n{output}")
+        ]
+
+        response = llm.invoke(messages)
+        verdict = response.content.strip().upper()
+
+        if "YES" in verdict:
+            log_to_cryptex("CONSTITUTION_VIOLATION", output[:120])
+            print(f"[ENFORCER] CONSTITUTION VIOLATION DETECTED")
+            return False
+
+        return True
+
+    except Exception as e:
+        log_to_cryptex("CONSTITUTION_CHECK_ERROR", str(e))
+        print(f"[ENFORCER] Constitution check failed, defaulting to BLOCK: {e}")
+        return False
+
+# Add the method to the class
+EnforcerTeam.enforce_constitution = enforce_constitution
+
+# === NEW v4.1 DESIGN SYSTEM SUPPORT (added by Graybeard) ===
+# This tells the Enforcer how to handle "apply_design_system:brand" proposals
+
+ALLOWED_PROPOSAL_TYPES.append("apply_design_system")
+
+DESIGN_SYSTEM_CONSTITUTION_RULE = """
+When the proposal starts with "apply_design_system:":
+- Extract the brand name (example: ollama, spotify, linear, apple, x.ai)
+- It is ALLOWED and SAFE (MIT license, used only for guiding AI generation)
+- On approval, the Supervisor will automatically download the official DESIGN.md
+- This forces the Worker to use exact colors, spacing, typography, and components from that brand
+- Never allow trademarked logos or copying closed-source code — only visual style guidance
+"""
+
+# Helper function to handle design system proposals
+def handle_design_system_proposal(proposal: str):
+    if not proposal.startswith("apply_design_system:"):
+        return False, "Not a design system proposal"
+    
+    brand = proposal.split(":", 1)[1].strip()
+    if not brand:
+        return False, "Missing brand name after apply_design_system:"
+    
+    # Basic safety check - only allow known good brands (we can expand later)
+    allowed_brands = ["ollama", "x.ai", "spotify", "linear", "apple", "stripe", "claude", "notion", "airbnb", "uber", "nvidia", "spacex"]
+    if brand.lower() not in [b.lower() for b in allowed_brands]:
+        return False, f"Brand '{brand}' not in initial allowed list. Ask Alex to add it."
+    
+    return True, f"✅ Design system proposal approved for brand: {brand}. Will download DESIGN.md on next run."

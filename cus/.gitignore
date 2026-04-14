@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+hard_negatives.json
+dpo_training_pairs.jsonl
+cusp_report.md
+*.log

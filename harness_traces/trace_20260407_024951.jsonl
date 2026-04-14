@@ -1,0 +1,3 @@
+{"timestamp": "20260407_024951", "proposal": "python -c '", "steps": [], "status": "started"}
+{"timestamp": "20260407_024951", "proposal": "from swarm_runner import runner", "steps": [], "status": "started"}
+{"timestamp": "20260407_024951", "proposal": "runner.start(scale=1, interval_seconds=180)   # safe: 1 cycle every 3 minutes", "steps": [], "status": "started"}

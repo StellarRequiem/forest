@@ -1,0 +1,37 @@
+```html
+
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <title>Clean Agent Submission Form</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.14.0/dist/tailwind.min.css" rel="stylesheet">
+
+</head>
+
+<body class="bg-green-50 flex items-center justify-center min-h-screen font-mono tracking-wide text-lg md:text-3xl">
+
+    <form action="/submit_agent" method="POST" class="space-y-6 mx-auto max-w-lg shadow-md px-8 pt-10 pb-4 bg-white dark:bg-gray-70 border border-gray-200 rounded-lg">
+
+        <div>
+
+            <label class="block text-sm font-semibold text-gray-900" for="name">Name</label>
+
+            <input type="text" id="name" name="name" placeholder="John Doe" required class="mt-1 block w-full px-6 py-4 shadow-md rounded appearance-none border-transparent focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 text-gray-700 bg-white dark:bg-gray-800" aria-label="Name">
+
+        </div>
+
+        <div class="mt-4">
+
+            <label for="email" class="block mb-2 text-sm font-semibold text-gray-900 tracking-widest text-base lc_email:uppercase">Email</label>
+
+            <input type="email" id="email" name="email" placeholder="john.doe@example.com" required class="mt-1 block w-full px-6 py-4 shadow-sm appearance-none border-transparent rounded bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500" aria-label="Email">
+
+       s.html 'agent_submission' => '/submit_agent', method => 'POST']
+
+    ];

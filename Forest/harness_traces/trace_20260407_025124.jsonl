@@ -1,0 +1,8 @@
+{"timestamp": "20260407_025124", "proposal": "'cd ~/Forest", "steps": [], "status": "started"}
+{"timestamp": "20260407_025124", "proposal": "source venv/bin/activate", "steps": [], "status": "started"}
+{"timestamp": "20260407_025124", "proposal": "python -c '", "steps": [], "status": "started"}
+{"timestamp": "20260407_025124", "proposal": "from swarm_runner import runner", "steps": [], "status": "started"}
+{"timestamp": "20260407_025124", "proposal": "runner.current_scale = 2          # ramp up (max 3 safe)", "steps": [], "status": "started"}
+{"timestamp": "20260407_025124", "proposal": "# runner.current_scale = 1        # ramp down", "steps": [], "status": "started"}
+{"timestamp": "20260407_025124", "proposal": "# runner.stop()                   # pause safely", "steps": [], "status": "started"}
+{"timestamp": "20260407_025124", "proposal": "print(\"Current scale:\", runner.current_scale)", "steps": [], "status": "started"}

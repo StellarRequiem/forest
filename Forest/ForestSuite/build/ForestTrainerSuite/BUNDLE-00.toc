@@ -1,0 +1,3 @@
+([('ForestTrainerSuite',
+   '/Users/llm01/Forest/ForestSuite/dist/ForestTrainerSuite',
+   'EXECUTABLE')],)
