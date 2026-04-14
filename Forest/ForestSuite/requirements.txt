@@ -1,2 +1,0 @@
-# Minimal dependencies - tkinter is usually included with Python on macOS
-# Add any others if needed later

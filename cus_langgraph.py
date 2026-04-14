@@ -11,7 +11,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 try:
-    from enforcer import enforcer
+    from agents.organs.enforcer import enforcer
 except ImportError:
     class DummyEnforcer:
         def scan_swarm(self, status=None): return {"status": "scanned"}
@@ -20,7 +20,7 @@ except ImportError:
     enforcer = DummyEnforcer()
 
 try:
-    from lvl1_worker import NetworkWatcher, TelemetryGuardian
+    from agents.core.lvl1_worker import NetworkWatcher, TelemetryGuardian
     from phishing_trainer_worker import PhishingTrainerWorker
     print("✅ Stable blue-team organs loaded (Metatron paused)")
 except ImportError as e:

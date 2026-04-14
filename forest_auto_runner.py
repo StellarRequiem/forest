@@ -17,7 +17,7 @@ from exposure_hunter import ExposureHunter
 from architecture_evolver import ArchitectureEvolver
 from forest_forge import ForestForge
 from scenario_mutator import ScenarioMutator
-from forest_auditor import ForestAuditor
+from core.audit.forest_auditor import ForestAuditor
 from datetime import datetime, timedelta
 
 print(f"🌲 Forest Auto-Runner v1.14 started at {datetime.now()}")

@@ -1,9 +1,0 @@
-{
-  "name": "my_first_agent",
-  "description": "User-submitted agent: my_first_agent",
-  "initial_prompt": "You are my_first_agent, a useful Forest agent.",
-  "created": "2026-04-07T02:43:12.597893",
-  "training_history": [],
-  "current_score": 0,
-  "status": "submitted"
-}

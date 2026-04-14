@@ -11,7 +11,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 try:
-    from enforcer import enforcer
+    from agents.organs.enforcer import enforcer
     print("✅ Real Enforcer v3.0 loaded")
 except ImportError:
     class DummyEnforcer:
@@ -28,7 +28,7 @@ except ImportError:
         return {"grade": 88.0, "decision": "PROMOTE", "points": 100, "breakdown": {}}
 
 try:
-    from forest_brain import spawn_agent, log_chain
+    from agents.organs.forest_brain import spawn_agent, log_chain
 except ImportError:
     def spawn_agent(name, model, role):
         print(f"[BRAIN] Spawned {name} ({model})")

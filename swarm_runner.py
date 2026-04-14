@@ -8,7 +8,7 @@ import time
 import schedule
 import psutil
 import json
-from agent_trainer import trainer
+from training.generator.agent_trainer import trainer
 from deep_research import DeepResearchLoop
 
 class SwarmRunner:
