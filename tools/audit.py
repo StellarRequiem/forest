@@ -65,6 +65,7 @@ def _hr(char="─", width=80) -> str:
 
 _HASH_SUFFIX = " | Hash: "
 _HEX_RE      = re.compile(r"^[a-f0-9]+$")
+_TEXT_RE     = re.compile(r"^(.+) \| Hash: [a-f0-9]+$")
 
 def _verify_text_line(raw: str) -> tuple[bool | None, str, str, str]:
     """
