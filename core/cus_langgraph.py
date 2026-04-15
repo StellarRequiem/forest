@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """
-Forest CUS LangGraph v5.0 — Real workers, LLM grading, constitution enforcement.
+Forest CUS LangGraph v5.1 — Baseline delta detection added.
 
-Changes from v4.0:
-  - worker_node now calls real WorkerRegistry classes (network, log, threat)
-  - Each worker's output goes through the LLM constitution check before grading
-  - Grading uses the rewritten GradingEngine v2.0 (LLM-backed constitution score)
-  - Version strings updated throughout
+Changes from v5.0:
+  - Imports baseline engine; creates ~/ForestVault/baseline.json on first run
+  - Workers inject [DELTA] block into LLM prompt when ports/processes change
+  - --update-baseline flag refreshes the baseline from current observations
+  - Version bump to v5.1
 """
 
+import argparse
 import time
 import uuid
 from pathlib import Path
@@ -41,14 +42,22 @@ except ImportError:
 
 try:
     from core.workers import WORKER_REGISTRY
-    print("✅ Workers v1.0 loaded (network / log / threat)")
+    print("✅ Workers v1.2 loaded (network / log / threat + baseline delta)")
 except ImportError:
     try:
         from workers import WORKER_REGISTRY
-        print("✅ Workers v1.0 loaded (relative import)")
+        print("✅ Workers v1.2 loaded (relative import)")
     except ImportError:
         WORKER_REGISTRY = {}
         print("⚠️  Workers not found — will use fallback stubs")
+
+try:
+    from core import baseline as _baseline
+except ImportError:
+    try:
+        import baseline as _baseline
+    except ImportError:
+        _baseline = None
 
 try:
     from agents.organs.forest_brain import spawn_agent, log_chain
@@ -241,12 +250,60 @@ cus_graph = workflow.compile(checkpointer=memory)
 
 # ── Public entry point ────────────────────────────────────────────────────────
 
-def run_cus_swarm(level: int = 1, task: str = "Blue-team monitoring cycle") -> dict:
+def _manage_baseline(update: bool = False) -> None:
+    """
+    Create baseline on first run, or update it if --update-baseline was passed.
+    Collects raw observations (no LLM) from network and process workers.
+    """
+    if _baseline is None:
+        return
+
+    exists = _baseline.load() is not None
+
+    if exists and not update:
+        b = _baseline.load()
+        print(f"  [Baseline] loaded — created {b['created'][:10]}, "
+              f"cycles since update: {b.get('cycles', 0)}")
+        return
+
+    action = "Updating" if (exists and update) else "Creating"
+    print(f"  [Baseline] {action} baseline from current observations…")
+
+    # Gather raw observations without running any LLM
+    ports, ext_ips, proc_names = [], [], []
+    net_cls   = WORKER_REGISTRY.get("network_watcher")
+    threat_cls = WORKER_REGISTRY.get("threat_pattern_detector")
+
+    if net_cls:
+        try:
+            ports, ext_ips = net_cls().observe()
+        except Exception as exc:
+            print(f"  [Baseline] network observe failed: {exc}")
+
+    if threat_cls:
+        try:
+            proc_names = threat_cls().observe()
+        except Exception as exc:
+            print(f"  [Baseline] process observe failed: {exc}")
+
+    b = _baseline.create(ports, ext_ips, proc_names)
+    _baseline.save(b)
+    print(f"  [Baseline] saved — {len(ports)} ports, "
+          f"{len(proc_names)} processes, "
+          f"{len(ext_ips)} external IPs")
+
+
+def run_cus_swarm(level: int = 1,
+                  task: str = "Blue-team monitoring cycle",
+                  update_baseline: bool = False) -> dict:
     print(f"\n{'='*60}")
-    print(f"  🌲 Forest CUS LangGraph v5.0")
+    print(f"  🌲 Forest CUS LangGraph v5.1")
     print(f"  Task : {task}")
     print(f"  Level: {level}")
     print(f"{'='*60}")
+
+    # Baseline management before the cycle runs
+    _manage_baseline(update=update_baseline)
 
     initial_state: CUSState = {
         "task":               task,
@@ -259,9 +316,16 @@ def run_cus_swarm(level: int = 1, task: str = "Blue-team monitoring cycle") -> d
         "blocked_count":      0,
         "idle_mode":          False,
     }
-    config = {"configurable": {"thread_id": f"cus-v50-{uuid.uuid4().hex[:8]}"}}
+    config = {"configurable": {"thread_id": f"cus-v51-{uuid.uuid4().hex[:8]}"}}
 
     result = cus_graph.invoke(initial_state, config)
+
+    # Increment cycle counter in baseline
+    if _baseline:
+        b = _baseline.load()
+        if b and not update_baseline:
+            _baseline.increment_cycles(b)
+            _baseline.save(b)
 
     print(f"\n{'='*60}")
     print("  CUS Cycle Complete")
@@ -277,5 +341,144 @@ def run_cus_swarm(level: int = 1, task: str = "Blue-team monitoring cycle") -> d
     return result
 
 
+def _notify(title: str, message: str) -> None:
+    """
+    Fire a macOS desktop notification. Silent no-op on non-macOS or if
+    osascript is unavailable.
+    """
+    import subprocess, sys
+    if sys.platform != "darwin":
+        return
+    try:
+        script = (
+            f'display notification "{message}" '
+            f'with title "{title}" '
+            f'sound name "Basso"'
+        )
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True, timeout=5,
+        )
+    except Exception:
+        pass
+
+
+def run_continuous(interval_minutes: int,
+                   alert: bool,
+                   alert_threshold: float,
+                   update_baseline: bool) -> None:
+    """
+    Run swarm cycles indefinitely, sleeping `interval_minutes` between each.
+    No human gate — approves automatically.
+    Press Ctrl-C to stop.
+    """
+    import signal
+
+    cycle_num = 0
+    print(f"\n🌲 Forest CUS — Continuous mode every {interval_minutes}m "
+          f"(Ctrl-C to stop)")
+    if alert:
+        print(f"   Alerts enabled — notify when score < {alert_threshold:.0f}")
+    if alert:
+        _notify("Forest CUS started",
+                f"Monitoring every {interval_minutes} minutes")
+
+    def _run_one() -> None:
+        nonlocal cycle_num
+        cycle_num += 1
+        task = f"Blue-team monitoring cycle #{cycle_num}"
+        print(f"\n[{time.strftime('%H:%M:%S')}] Starting cycle #{cycle_num}…")
+
+        # Bypass human gate: patch supervisor_node temporarily
+        _orig_input = __builtins__.__dict__.get("input") if hasattr(__builtins__, "__dict__") else None
+
+        import builtins
+        _orig = builtins.input
+        builtins.input = lambda _: "yes"
+        try:
+            result = run_cus_swarm(task=task, update_baseline=update_baseline and cycle_num == 1)
+        finally:
+            builtins.input = _orig
+
+        # Alert on low scores or blocked workers
+        if alert:
+            alerts = []
+            for r in result.get("understory_results", []):
+                if "BLOCKED" in r:
+                    alerts.append(f"BLOCKED: {r.split('|')[0].strip()}")
+                    continue
+                parts = r.split("|")
+                for p in parts:
+                    if "score=" in p:
+                        try:
+                            score = float(p.split("=")[1])
+                            if score < alert_threshold:
+                                wname = r.split("|")[0].strip()
+                                alerts.append(f"{wname}: score {score:.1f}")
+                        except ValueError:
+                            pass
+
+            if alerts:
+                msg = "; ".join(alerts)
+                print(f"\n  🚨 ALERT: {msg}")
+                _notify("🌲 Forest CUS Alert", msg)
+
+    try:
+        while True:
+            _run_one()
+            sleep_secs = interval_minutes * 60
+            print(f"\n  Sleeping {interval_minutes}m until next cycle… (Ctrl-C to stop)")
+            time.sleep(sleep_secs)
+    except KeyboardInterrupt:
+        print(f"\n🌲 Forest CUS stopped after {cycle_num} cycle(s).")
+        if alert:
+            _notify("Forest CUS stopped", f"{cycle_num} cycles completed")
+
+
 if __name__ == "__main__":
-    run_cus_swarm()
+    parser = argparse.ArgumentParser(
+        description="Forest CUS — Blue-Team Monitoring Swarm",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python3 core/cus_langgraph.py                   # single cycle with human gate\n"
+            "  python3 core/cus_langgraph.py --continuous 30   # loop every 30 minutes\n"
+            "  python3 core/cus_langgraph.py --continuous 30 --alert  # + desktop alerts\n"
+            "  python3 core/cus_langgraph.py --update-baseline # refresh known-good baseline\n"
+        ),
+    )
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="Refresh baseline.json from current system state before running",
+    )
+    parser.add_argument(
+        "--continuous",
+        metavar="MINUTES",
+        type=int,
+        default=0,
+        help="Run continuously, sleeping MINUTES between cycles (no human gate)",
+    )
+    parser.add_argument(
+        "--alert",
+        action="store_true",
+        help="Send macOS desktop notification when score < threshold or worker is blocked",
+    )
+    parser.add_argument(
+        "--alert-threshold",
+        metavar="SCORE",
+        type=float,
+        default=70.0,
+        help="Alert when any worker score falls below this value (default: 70)",
+    )
+    args = parser.parse_args()
+
+    if args.continuous > 0:
+        run_continuous(
+            interval_minutes=args.continuous,
+            alert=args.alert,
+            alert_threshold=args.alert_threshold,
+            update_baseline=args.update_baseline,
+        )
+    else:
+        run_cus_swarm(update_baseline=args.update_baseline)

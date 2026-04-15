@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Forest Report launcher — generates score history Markdown report
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FOREST_DIR="$(dirname "$SCRIPT_DIR")"
+
+source "$FOREST_DIR/venv/bin/activate" 2>/dev/null || true
+
+exec python3 "$FOREST_DIR/tools/report.py" "$@"

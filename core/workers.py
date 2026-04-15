@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-Forest Workers v1.1 — Real system data + Ollama analysis
-Three blue-team Lvl1 workers that gather actual system state and ask
-a local LLM to interpret it. No hardcoded outputs.
+Forest Workers v1.2 — Real system data + Ollama analysis + baseline delta
+
+v1.2 changes:
+  - NetworkWatcher: injects [DELTA] block into LLM prompt when new/removed
+    ports or new external IPs are detected vs baseline
+  - ThreatPatternDetector: injects [DELTA] block for new process names vs baseline
+  - Both workers expose raw observation lists so baseline can be created/updated
+  - If no baseline exists, workers behave as v1.1 (snapshot-only, no delta)
 
 v1.1 changes:
   - NetworkWatcher: replaced broken psutil.net_connections() (needs root on macOS)
@@ -20,6 +25,14 @@ from collections import Counter
 
 import psutil
 import ollama
+
+try:
+    from core import baseline as _baseline
+except ImportError:
+    try:
+        import baseline as _baseline
+    except ImportError:
+        _baseline = None
 
 # ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -61,19 +74,41 @@ class NetworkWatcher:
                 "172.19.", "172.2", "::1", "fe80", "fd", "fc")
 
     def run(self) -> str:
-        snapshot = self._gather()
+        snapshot, ports, ext_ips = self._gather()
+
+        delta_block = ""
+        if _baseline:
+            b = _baseline.load()
+            if b:
+                delta = _baseline.network_delta(b, ports, ext_ips)
+                delta_block = _baseline.format_network_delta(delta)
+
+        delta_section = (
+            f"\n{delta_block}\n" if delta_block
+            else "\n[No baseline changes detected]\n"
+        )
+
         prompt = (
             "You are a blue-team network analyst.\n"
             "Review this network snapshot and give a 2–3 sentence assessment.\n"
+            "Pay special attention to any DELTA items — those represent changes "
+            "since the last known-good baseline.\n"
             "Flag anything unusual: unexpected external IPs, unusual listening ports, "
             "or abnormal connection counts.\n\n"
-            f"Snapshot ({_timestamp()}):\n{snapshot}\n\n"
+            f"Snapshot ({_timestamp()}):\n{snapshot}"
+            f"{delta_section}\n"
             "Assessment:"
         )
         analysis = _call_llm(self.MODEL, prompt)
         return f"[{self.NAME}] {analysis}"
 
-    def _gather(self) -> str:
+    # Expose raw observations so baseline module can create/update snapshots
+    def observe(self) -> tuple[list[int], list[str]]:
+        """Return (listening_ports, external_ips) without running LLM."""
+        _, ports, ext_ips = self._gather()
+        return ports, ext_ips
+
+    def _gather(self) -> tuple[str, list[int], list[str]]:
         lines = []
 
         # ── 1. netstat for state counts and listening ports ───────────────────
@@ -156,7 +191,8 @@ class NetworkWatcher:
         except Exception:
             pass
 
-        return "\n".join(lines) if lines else "No network data available."
+        snapshot = "\n".join(lines) if lines else "No network data available."
+        return snapshot, list(set(listening_ports)), list(dict.fromkeys(external_conns))
 
 
 # ── Worker 2: LogAnomalySpecialist ────────────────────────────────────────────
@@ -260,19 +296,41 @@ class ThreatPatternDetector:
     NAME  = "threat_pattern_detector"
 
     def run(self) -> str:
-        snapshot = self._gather()
+        snapshot, proc_names = self._gather()
+
+        delta_block = ""
+        if _baseline:
+            b = _baseline.load()
+            if b:
+                delta = _baseline.process_delta(b, proc_names)
+                delta_block = _baseline.format_process_delta(delta)
+
+        delta_section = (
+            f"\n{delta_block}\n" if delta_block
+            else "\n[No baseline changes detected]\n"
+        )
+
         prompt = (
             "You are a threat detection analyst.\n"
             "Review these running processes and give a 2–3 sentence assessment.\n"
+            "Pay special attention to any DELTA items — those are processes that "
+            "were not running during the last known-good baseline.\n"
             "Flag: unusually high CPU or memory usage, unfamiliar process names, "
             "or patterns that could indicate malware, cryptomining, or compromise.\n\n"
-            f"Process snapshot ({_timestamp()}):\n{snapshot}\n\n"
+            f"Process snapshot ({_timestamp()}):\n{snapshot}"
+            f"{delta_section}\n"
             "Threat assessment:"
         )
         analysis = _call_llm(self.MODEL, prompt)
         return f"[{self.NAME}] {analysis}"
 
-    def _gather(self) -> str:
+    # Expose raw observations for baseline creation/update
+    def observe(self) -> list[str]:
+        """Return list of current process names without running LLM."""
+        _, names = self._gather()
+        return names
+
+    def _gather(self) -> tuple[str, list[str]]:
         lines = []
 
         # Collect process info
@@ -324,7 +382,8 @@ class ThreatPatternDetector:
             f"{u}={n}" for u, n in user_counts.most_common(5)
         ))
 
-        return "\n".join(lines)
+        all_names = [p.get("name", "") for p in procs if p.get("name")]
+        return "\n".join(lines), all_names
 
 
 # ── Registry (used by cus_langgraph) ─────────────────────────────────────────
