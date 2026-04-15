@@ -1,0 +1,153 @@
+---
+# Prometheus ServiceMonitor for metrics collection
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: forest
+  namespace: forest
+spec:
+  selector:
+    matchLabels:
+      app: forest-core
+  endpoints:
+  - port: api
+    interval: 30s
+
+---
+# HorizontalPodAutoscaler for forest-core
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: forest-core-hpa
+  namespace: forest
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: forest-core
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+
+---
+# HorizontalPodAutoscaler for forest-dashboard
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: forest-dashboard-hpa
+  namespace: forest
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: forest-dashboard
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 75
+
+---
+# PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: forest-core-pdb
+  namespace: forest
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: forest-core
+
+---
+# Role for Forest pods
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: forest-role
+  namespace: forest
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+
+---
+# RoleBinding for Forest pods
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: forest-rolebinding
+  namespace: forest
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: forest-role
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: forest
+
+---
+# ResourceQuota to limit namespace usage
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: forest-quota
+  namespace: forest
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: "10Gi"
+    limits.cpu: "20"
+    limits.memory: "20Gi"
+    pods: "50"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["default"]
+
+---
+# NetworkPolicy for external access
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: forest-external-access
+  namespace: forest
+spec:
+  podSelector:
+    matchLabels:
+      app: forest-dashboard
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 8501

@@ -1,0 +1,65 @@
+# Multi-stage Dockerfile for forest-training
+# Builder → Runtime (GPU support, model caching)
+
+FROM python:3.10 AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ==============================================================================
+# Runtime stage (with GPU support)
+FROM nvidia/cuda:11.8.0-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# Install Python
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3.10-venv \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment
+COPY --from=builder /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FOREST_PATH=/app \
+    HF_HOME=/cache/huggingface \
+    OLLAMA_MODELS=/cache/ollama
+
+# Create non-root user
+RUN useradd -m -u 1000 forest
+USER forest
+
+# Copy application
+COPY --chown=forest:forest . /app
+
+# Create cache directories
+RUN mkdir -p /cache/huggingface /cache/ollama && chmod 755 /cache
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "from forest_training import CodeGenerator; print('OK')" || exit 1
+
+# Labels
+LABEL org.opencontainers.image.title="Forest Training" \
+      org.opencontainers.image.description="Forest training pipeline with code generation" \
+      org.opencontainers.image.version="1.0.0-alpha"
+
+CMD ["python", "-m", "forest_training.server"]
+
+EXPOSE 8001

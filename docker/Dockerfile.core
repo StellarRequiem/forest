@@ -1,0 +1,66 @@
+# Multi-stage Dockerfile for forest-core
+# Builder stage → Runtime stage (optimized for production)
+
+FROM python:3.10-slim AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install dependencies
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ==============================================================================
+# Runtime stage
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Set environment
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FOREST_PATH=/app
+
+# Create non-root user
+RUN useradd -m -u 1000 forest
+USER forest
+
+# Copy application code
+COPY --chown=forest:forest . /app
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD python -c "from forest_core import get_middleware; print('OK')" || exit 1
+
+# Labels
+LABEL org.opencontainers.image.title="Forest Core" \
+      org.opencontainers.image.description="Forest CUS orchestration engine" \
+      org.opencontainers.image.version="1.0.0-alpha" \
+      org.opencontainers.image.authors="Forest AI"
+
+# Default command
+CMD ["python", "-m", "forest_core.server"]
+
+# Expose port (if serving API)
+EXPOSE 8000

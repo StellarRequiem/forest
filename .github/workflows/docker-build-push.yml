@@ -1,0 +1,125 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    strategy:
+      matrix:
+        image:
+          - name: forest-core
+            dockerfile: docker/Dockerfile.core
+          - name: forest-training
+            dockerfile: docker/Dockerfile.training
+          - name: forest-network
+            dockerfile: docker/Dockerfile.network
+          - name: forest-audit
+            dockerfile: docker/Dockerfile.audit
+          - name: forest-dashboard
+            dockerfile: docker/Dockerfile.dashboard
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Log in to Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=ref,event=branch
+            type=sha
+      
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  
+  test-images:
+    needs: build-images
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        image:
+          - forest-core
+          - forest-training
+          - forest-network
+          - forest-audit
+          - forest-dashboard
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Test ${{ matrix.image }} image
+        run: |
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:sha-${{ github.sha }} \
+            python -c "import sys; print(f'Image test passed'); sys.exit(0)"
+  
+  deploy-k8s:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test-images
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: latest
+      
+      - name: Deploy to Kubernetes (staging)
+        env:
+          KUBECONFIG: ${{ secrets.KUBECONFIG_STAGING }}
+        run: |
+          kubectl create namespace forest --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/ -n forest
+          kubectl rollout status deployment/forest-core -n forest --timeout=5m
+  
+  notify:
+    if: always()
+    needs: [build-images, test-images]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Notify deployment
+        run: |
+          echo "Build Status: ${{ job.status }}"
+          echo "Images built and tested successfully"

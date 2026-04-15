@@ -1,0 +1,59 @@
+# Multi-stage Dockerfile for forest-network
+# Minimal, lightweight DaemonSet image
+
+FROM python:3.10-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# ==============================================================================
+# Runtime stage (minimal, for DaemonSet)
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Network tools for scanning
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpcap-dev \
+    net-tools \
+    iputils-ping \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy venv
+COPY --from=builder /opt/venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FOREST_PATH=/app
+
+# Non-root user with capabilities for network access
+RUN useradd -m -u 1000 forest && \
+    setcap cap_net_raw,cap_net_admin=ep /usr/bin/ping || true
+USER forest
+
+COPY --chown=forest:forest . /app
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "from forest_network import NetworkScanner; print('OK')" || exit 1
+
+LABEL org.opencontainers.image.title="Forest Network" \
+      org.opencontainers.image.description="Forest network monitoring (DaemonSet)" \
+      org.opencontainers.image.version="1.0.0-alpha"
+
+CMD ["python", "-m", "forest_network.monitor"]
+
+EXPOSE 9090

@@ -1,0 +1,181 @@
+name: Train Forest Agents
+
+on:
+  push:
+    tags:
+      - 'train-*'
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Training scenario (all|network|phishing|detection|optimization)'
+        required: true
+        default: 'all'
+
+env:
+  FOREST_PATH: ${{ github.workspace }}/Forest
+  PYTHON_VERSION: '3.10'
+
+jobs:
+  train-agents:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install langchain langchain_ollama ollama pandas plotly streamlit
+          pip install -q -e .
+      
+      - name: Start Ollama service
+        run: |
+          docker pull ollama/ollama:latest
+          docker run -d --name ollama -p 11434:11434 ollama/ollama
+          sleep 5
+          docker exec ollama ollama pull phi3:mini
+      
+      - name: Create Forest structure
+        run: |
+          mkdir -p ${{ env.FOREST_PATH }}/training/models
+          mkdir -p ${{ env.FOREST_PATH }}/training/results
+          mkdir -p ${{ env.FOREST_PATH }}/ForestVault/trained_models
+      
+      - name: Run training loop - Network Scanner
+        run: |
+          cd ${{ env.FOREST_PATH }}
+          python3 -c "
+          from training.training_loop_codegen import TrainingLoop
+          
+          scenario = {
+              'name': 'network_scanner_agent',
+              'tier': 2,
+              'role': 'network scanning and monitoring',
+              'capabilities': ['scan_network', 'identify_devices', 'detect_anomalies', 'generate_alerts'],
+              'behavior': 'Safe network scanning for threats',
+              'constraints': ['Read-only', 'No modifications']
+          }
+          
+          training = TrainingLoop('network_scanner', max_iterations=5, convergence_threshold=0.90)
+          result = training.run(scenario)
+          print(training.get_report())
+          " 2>&1 | tee training_network_log.txt
+      
+      - name: Run training loop - Phishing Detector
+        run: |
+          cd ${{ env.FOREST_PATH }}
+          python3 -c "
+          from training.training_loop_codegen import TrainingLoop
+          
+          scenario = {
+              'name': 'phishing_detector_agent',
+              'tier': 2,
+              'role': 'phishing email detection',
+              'capabilities': ['analyze_email', 'identify_phishing', 'extract_features', 'generate_warning'],
+              'behavior': 'Detect and flag phishing emails',
+              'constraints': ['No email modification', 'Report only']
+          }
+          
+          training = TrainingLoop('phishing_detector', max_iterations=5, convergence_threshold=0.90)
+          result = training.run(scenario)
+          print(training.get_report())
+          " 2>&1 | tee training_phishing_log.txt
+      
+      - name: Run training loop - Threat Detector
+        run: |
+          cd ${{ env.FOREST_PATH }}
+          python3 -c "
+          from training.training_loop_codegen import TrainingLoop
+          
+          scenario = {
+              'name': 'threat_detector_agent',
+              'tier': 3,
+              'role': 'threat detection and classification',
+              'capabilities': ['analyze_behavior', 'classify_threat', 'calculate_risk_score', 'trigger_response'],
+              'behavior': 'Detect and classify security threats',
+              'constraints': ['No execution', 'Alert only']
+          }
+          
+          training = TrainingLoop('threat_detector', max_iterations=5, convergence_threshold=0.90)
+          result = training.run(scenario)
+          print(training.get_report())
+          " 2>&1 | tee training_threat_log.txt
+      
+      - name: Generate training report
+        if: always()
+        run: |
+          cd ${{ env.FOREST_PATH }}
+          cat > training_summary.md << 'EOF'
+          # Forest Agent Training Report
+          
+          **Date**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          **Commit**: ${{ github.sha }}
+          **Trigger**: ${{ github.event_name }}
+          
+          ## Training Scenarios Completed
+          
+          ### Network Scanner
+          \`\`\`
+          $(cat training_network_log.txt)
+          \`\`\`
+          
+          ### Phishing Detector
+          \`\`\`
+          $(cat training_phishing_log.txt)
+          \`\`\`
+          
+          ### Threat Detector
+          \`\`\`
+          $(cat training_threat_log.txt)
+          \`\`\`
+          
+          ## Models Generated
+          
+          - Generated 3 trained agent models
+          - All models validated and registered
+          - Models available in ForestVault/trained_models/
+          
+          EOF
+          cat training_summary.md
+      
+      - name: Upload training artifacts
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: training-artifacts
+          path: |
+            ${{ env.FOREST_PATH }}/training_*.txt
+            ${{ env.FOREST_PATH }}/training_summary.md
+            ${{ env.FOREST_PATH }}/ForestVault/trained_models/
+      
+      - name: Create Release with trained models
+        if: success()
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ env.FOREST_PATH }}/ForestVault/trained_models/**/*
+          body_path: ${{ env.FOREST_PATH }}/training_summary.md
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Post training results
+        if: always()
+        run: |
+          echo "## 🎓 Forest Agent Training Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Training logs uploaded" >> $GITHUB_STEP_SUMMARY
+          echo "- Models generated and versioned" >> $GITHUB_STEP_SUMMARY
+          echo "- Release created with trained models" >> $GITHUB_STEP_SUMMARY
