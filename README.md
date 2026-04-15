@@ -247,9 +247,8 @@ The hash covers the full line content. Run `./bin/forest-audit` to verify none h
 | `qwen2.5:3b` | 1.9 GB | Network analysis, constitution judge |
 | `llama3.2:3b` | 2.0 GB | Log analysis, threat assessment |
 | `nomic-embed-text` | 274 MB | Semantic drift detection (embeddings) |
-| `qwen2:0.5b` | 352 MB | Fast fallback |
 
-All models run locally. No API keys, no cloud calls.
+**Total: ~4.2 GB.** All models run locally — no API keys, no cloud calls.
 
 ---
 
@@ -271,15 +270,15 @@ Forest CUS is tested on a **Mac Mini M4 (16 GB unified memory)**. This is the re
 **To upgrade models** (edit `core/workers.py`):
 ```python
 class NetworkWatcher:
-    MODEL = "qwen2.5:7b"   # upgrade from qwen2.5:3b for better network analysis
+    MODEL = "qwen2.5:7b"    # upgrade from qwen2.5:3b — better network reasoning
 
 class LogAnomalySpecialist:
-    MODEL = "mistral:7b"   # upgrade from phi3:mini for richer log interpretation
+    MODEL = "llama3.2:8b"   # upgrade from llama3.2:3b — richer log interpretation
 
 class ThreatPatternDetector:
-    MODEL = "mistral:7b"   # upgrade from phi3:mini for better threat reasoning
+    MODEL = "llama3.2:8b"   # upgrade from llama3.2:3b — better threat reasoning
 ```
-Then `ollama pull qwen2.5:7b` / `ollama pull mistral:7b`.
+Then `ollama pull qwen2.5:7b` / `ollama pull llama3.2:8b`.
 
 ---
 
