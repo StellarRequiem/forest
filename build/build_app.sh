@@ -1,58 +1,81 @@
 #!/usr/bin/env bash
-# build/build_app.sh — build Forest.app with PyInstaller
+# build/build_app.sh — produce Forest.app
 #
-# Prerequisites:
-#   source ../venv/bin/activate
-#   pip install pyinstaller
+# Run from the Forest project root:
+#   cd ~/Forest
+#   bash build/build_app.sh
 #
 # Output: dist/Forest.app
-# To distribute: drag dist/Forest.app to Applications or zip it.
+# To install: cp -r dist/Forest.app /Applications/
+# To distribute: zip -r Forest.zip dist/Forest.app
 
 set -e
 
 FOREST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${FOREST_DIR}"
 
-echo "=== Forest CUS — macOS App Builder ==="
-echo "  Project root: ${FOREST_DIR}"
-echo ""
+BOLD="\033[1m"; GREEN="\033[32m"; YELLOW="\033[33m"; RED="\033[31m"; RESET="\033[0m"
 
-# Activate venv
+echo -e "${BOLD}"
+echo "  ╔══════════════════════════════════════╗"
+echo "  ║   🌲  Forest CUS — App Builder        ║"
+echo "  ╚══════════════════════════════════════╝"
+echo -e "${RESET}"
+
+# ── Activate venv ─────────────────────────────────────────────────────────────
+if [[ ! -f "venv/bin/activate" ]]; then
+    echo -e "${RED}  ✗ venv not found. Run setup.sh first.${RESET}"
+    exit 1
+fi
 source venv/bin/activate
+echo -e "${GREEN}  ✓ venv active ($(python3 --version))${RESET}"
 
-# Install PyInstaller if not present
+# ── PyInstaller check ─────────────────────────────────────────────────────────
 if ! python3 -c "import PyInstaller" 2>/dev/null; then
     echo "  Installing PyInstaller…"
     pip install pyinstaller --quiet
 fi
+echo -e "${GREEN}  ✓ PyInstaller $(pyinstaller --version)${RESET}"
 
-echo "  Building Forest.app…"
+# ── Clean previous build ──────────────────────────────────────────────────────
+echo ""
+echo "  Cleaning previous build…"
+rm -rf dist/Forest dist/Forest.app build/Forest build/__pycache__
+echo -e "${GREEN}  ✓ Clean${RESET}"
+
+# ── Build ─────────────────────────────────────────────────────────────────────
+echo ""
+echo -e "${BOLD}  Building Forest.app…${RESET}"
+echo "  (This takes ~60 seconds)"
+echo ""
 
 pyinstaller \
-    --name "Forest" \
-    --windowed \
-    --onedir \
     --noconfirm \
-    --icon build/forest_icon.icns \
-    --osx-bundle-identifier "com.forest.cus" \
-    --add-data "build/ForestLauncher.py:." \
-    build/ForestLauncher.py 2>&1 | tail -20
+    --distpath dist \
+    --workpath build/pyinstaller_work \
+    build/Forest.spec 2>&1 | grep -v "^$" | grep -v "^INFO:" | tail -30
 
-# Inject a note about where the project lives
-# (the .app reads PROJECT_DIR relative to its bundle path)
-if [[ -d "dist/Forest.app" ]]; then
-    echo ""
-    echo "  ✓  Built: dist/Forest.app"
-    echo ""
-    echo "  To distribute:"
-    echo "    1. Copy dist/Forest.app to the user's Applications folder"
-    echo "    2. The user must have run 'bash setup.sh' first"
-    echo "    3. The app reads ~/Forest/venv — so the project must be at ~/Forest"
-    echo ""
-    echo "  Notes:"
-    echo "    - First macOS run may require: System Settings → Security → Open Anyway"
-    echo "    - To skip Gatekeeper for testing: xattr -dr com.apple.quarantine dist/Forest.app"
-else
-    echo "  Build failed — check output above"
+if [[ ! -d "dist/Forest.app" ]]; then
+    echo -e "${RED}  ✗ Build failed — check output above${RESET}"
     exit 1
 fi
+
+# ── Strip quarantine (for local testing) ─────────────────────────────────────
+xattr -cr dist/Forest.app 2>/dev/null || true
+
+# ── Result ────────────────────────────────────────────────────────────────────
+APP_SIZE=$(du -sh dist/Forest.app | cut -f1)
+echo ""
+echo -e "${GREEN}${BOLD}  ✓ Built: dist/Forest.app (${APP_SIZE})${RESET}"
+echo ""
+echo "  Install to Applications:"
+echo "    cp -r dist/Forest.app /Applications/"
+echo ""
+echo "  Or open right now:"
+echo "    open dist/Forest.app"
+echo ""
+echo "  Notes:"
+echo "  • The app manages Forest CUS using the venv at: ${FOREST_DIR}/venv"
+echo "  • Streamlit and Ollama are NOT bundled — they run via your venv"
+echo "  • First macOS open may need: System Settings → Privacy & Security → Open Anyway"
+echo ""

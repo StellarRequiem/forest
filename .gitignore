@@ -13,12 +13,15 @@ ENV/
 # Build artifacts — exclude PyInstaller output but track source
 *.egg-info/
 dist/
-build/*.pyc
+build/pyinstaller_work/
 build/__pycache__/
-# Track build/*.py and build/*.sh (launcher source + build scripts)
+build/*.pyc
+# Ignore PyInstaller-generated .spec files at root, but track build/Forest.spec
+*.spec
+!build/Forest.spec
+# Track build source files
 !build/ForestLauncher.py
 !build/build_app.sh
-*.spec
 
 # IDE
 .vscode/
