@@ -14,6 +14,7 @@ ENV/
 *.egg-info/
 dist/
 build/
+*.spec
 
 # IDE
 .vscode/
@@ -28,11 +29,33 @@ build/
 # Secrets / environment
 .env
 .env.local
+.env.*
 
-# Runtime data — not source code
-dify/volumes/
+# Runtime data — not source code, not for public repos
+dify/
 ForestVault/
+.forest_state/
+knowledge_base/
+docs/
+danger_room/
+repos_scaffold/
+k8s/
+
+# Runtime JSON exports
+cusp_report.json
+cusp_report.md
+gauntlet_stats.json
+known_hashes.txt
+
+# Logs
+*.log
 
 # Test artifacts
 .pytest_cache/
-*.log
+
+# PyInstaller
+ForestSuite/build/
+ForestSuite/dist/
+
+# Agent runtime data
+agents/*.json

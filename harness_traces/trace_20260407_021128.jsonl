@@ -1,3 +1,0 @@
-{"timestamp": "20260407_021128", "proposal": "sleep 90", "steps": [], "status": "started"}
-{"timestamp": "2026-04-07T02:11:28.574992", "step": "Proposal Received", "input": "sleep 90", "output": "", "success": true}
-{"timestamp": "2026-04-07T02:11:28.575204", "step": "Grading", "input": "Score: 88.8", "output": "APPROVE", "success": true}

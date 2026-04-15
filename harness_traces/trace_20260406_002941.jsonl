@@ -1,2 +1,0 @@
-{"timestamp": "20260406_002941", "proposal": "Test meta harness integration", "steps": [], "status": "started"}
-{"timestamp": "2026-04-06T00:29:41.471346", "step": "Test step", "input": "Some input", "output": "Good output", "success": true}
