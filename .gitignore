@@ -38,3 +38,9 @@ dify/volumes/
 # Vault (local only)
 ForestVault/
 
+
+# Dify volumes (runtime data, not source)
+dify/volumes/
+
+# ForestVault (runtime data, audit logs — too large for git)
+ForestVault/

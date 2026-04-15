@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """
-Forest CUS LangGraph v4.0 — Proposal Queue + Idle Mode
+Forest CUS LangGraph v5.0 — Real workers, LLM grading, constitution enforcement.
+
+Changes from v4.0:
+  - worker_node now calls real WorkerRegistry classes (network, log, threat)
+  - Each worker's output goes through the LLM constitution check before grading
+  - Grading uses the rewritten GradingEngine v2.0 (LLM-backed constitution score)
+  - Version strings updated throughout
 """
 
 import time
@@ -10,166 +16,266 @@ from typing import TypedDict, Annotated, List
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
+# ── Dependency imports with graceful fallbacks ────────────────────────────────
+
 try:
     from agents.organs.enforcer import enforcer
-    print("✅ Real Enforcer v3.0 loaded")
+    print("✅ Enforcer v4.0 loaded (qwen2.5:3b constitution judge)")
 except ImportError:
-    class DummyEnforcer:
+    class _DummyEnforcer:
         def approve(self, action): return True
         def enforce_constitution(self, output): return True
         def scan_swarm(self, status=None): return {"status": "scanned"}
-    enforcer = DummyEnforcer()
+    enforcer = _DummyEnforcer()
 
 try:
-    from grading_engine import cus_grade_and_reward
-    print("✅ Real Grading Engine v1.0 loaded")
+    from core.grading_engine import cus_grade_and_reward
+    print("✅ Grading Engine v2.0 loaded (LLM-backed scoring)")
 except ImportError:
-    def cus_grade_and_reward(cred, **kwargs):
-        return {"grade": 88.0, "decision": "PROMOTE", "points": 100, "breakdown": {}}
+    try:
+        from grading_engine import cus_grade_and_reward
+        print("✅ Grading Engine v2.0 loaded (relative import)")
+    except ImportError:
+        def cus_grade_and_reward(agent, action_result="", **kwargs):
+            return {"grade": 75.0, "decision": "MAINTAIN", "points": 80, "breakdown": {}}
+
+try:
+    from core.workers import WORKER_REGISTRY
+    print("✅ Workers v1.0 loaded (network / log / threat)")
+except ImportError:
+    try:
+        from workers import WORKER_REGISTRY
+        print("✅ Workers v1.0 loaded (relative import)")
+    except ImportError:
+        WORKER_REGISTRY = {}
+        print("⚠️  Workers not found — will use fallback stubs")
 
 try:
     from agents.organs.forest_brain import spawn_agent, log_chain
 except ImportError:
     def spawn_agent(name, model, role):
         print(f"[BRAIN] Spawned {name} ({model})")
-        return {"name": name, "credential_id": "STUB_CRED"}
+        return f"{name}|cred-{name}-stub"
     def log_chain(event, details=""):
         print(f"[LOG] {event} | {details}")
 
-PROPOSAL_DIR = Path.home() / "ForestVault" / "proposals"
+# ── Config ────────────────────────────────────────────────────────────────────
+
+PROPOSAL_DIR  = Path.home() / "ForestVault" / "proposals"
 PROPOSAL_DIR.mkdir(exist_ok=True)
 MAX_PROPOSALS = 20
-IDLE_TIMEOUT = 300  # 5 minutes of inactivity
+
+# Worker definitions: (registry_key, model, role_description)
+WORKER_DEFS = [
+    ("network_watcher",        "qwen2.5:3b",  "Passive network monitor"),
+    ("log_anomaly_specialist", "phi3:mini",   "Log anomaly detection"),
+    ("threat_pattern_detector","phi3:mini",   "Threat pattern detection"),
+]
+
+
+# ── State ─────────────────────────────────────────────────────────────────────
 
 class CUSState(TypedDict):
-    task: str
-    level: int
+    task:               str
+    level:              int
     understory_results: Annotated[List[str], "worker outputs"]
-    ecosystem_summary: str
+    ecosystem_summary:  str
     enforcer_approvals: List[str]
-    workers_spawned: int
-    proposals_stored: int
-    idle_mode: bool
+    workers_spawned:    int
+    proposals_stored:   int
+    blocked_count:      int
+    idle_mode:          bool
 
-def headmaster_node(state: CUSState):
-    enforcer.scan_swarm()
+
+# ── Graph nodes ───────────────────────────────────────────────────────────────
+
+def headmaster_node(state: CUSState) -> dict:
+    """Scan the swarm environment, then delegate to supervisor."""
+    scan_result = enforcer.scan_swarm()
     log_chain("HEADMASTER_DELEGATE", state.get("task", ""))
-    return {"level": 4}
+    return {"level": 4, "blocked_count": scan_result.get("blocked", 0)}
 
-def supervisor_node(state: CUSState):
+
+def supervisor_node(state: CUSState) -> dict:
+    """Human gate — operator must approve each cycle or choose to idle."""
     action = f"Supervise task: {state.get('task', 'unknown')}"
 
-    # Check if we have too many stored proposals
     current_proposals = len(list(PROPOSAL_DIR.glob("*.md")))
     if current_proposals >= MAX_PROPOSALS:
-        print(f"\n[FOREST] Proposal queue full ({current_proposals}/{MAX_PROPOSALS}). Idling until review.")
-        state["idle_mode"] = True
-        return {"ecosystem_summary": "IDLE - Proposal queue full"}
+        print(f"\n[FOREST] Proposal queue full ({current_proposals}/{MAX_PROPOSALS}). "
+              "Clear ~/ForestVault/proposals/ to resume.")
+        log_chain("SUPERVISOR_IDLE", "proposal queue full")
+        return {"idle_mode": True, "ecosystem_summary": "IDLE — proposal queue full"}
 
-    print(f"\n🔒 ENFORCER GATE (Supervisor): {action}")
-    print("Type 'yes' to approve this cycle or 'idle' to pause.")
-    choice = input("Approve cycle? (yes/idle) > ").strip().lower()
+    print(f"\n{'='*60}")
+    print(f"  🔒 HUMAN GATE — cycle requires approval")
+    print(f"  Task : {state.get('task', 'unknown')}")
+    print(f"  Level: {state.get('level', '?')}")
+    print(f"{'='*60}")
+    print("  Options: yes / idle / quit")
+
+    try:
+        choice = input("  Approve cycle? > ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        choice = "idle"
 
     if choice == "idle":
-        state["idle_mode"] = True
         log_chain("SUPERVISOR_IDLE", action)
-        return {"ecosystem_summary": "IDLE MODE ACTIVATED"}
+        return {"idle_mode": True, "ecosystem_summary": "IDLE MODE ACTIVATED"}
 
-    if choice in ["yes", "y"]:
+    if choice == "quit":
+        log_chain("SUPERVISOR_QUIT", action)
+        return {"idle_mode": True, "ecosystem_summary": "QUIT"}
+
+    if choice in ("yes", "y"):
         log_chain("SUPERVISOR_APPROVED", action)
         return {"level": 3}
-    else:
-        log_chain("SUPERVISOR_BLOCKED", action)
-        return {"ecosystem_summary": "ENFORCER BLOCKED"}
 
-def worker_node(state: CUSState):
+    log_chain("SUPERVISOR_BLOCKED", action)
+    return {"idle_mode": True, "ecosystem_summary": "CYCLE BLOCKED BY OPERATOR"}
+
+
+def worker_node(state: CUSState) -> dict:
+    """
+    Run each worker, enforce constitution on output, grade with real LLM scoring.
+    Workers are real classes that collect live system data and analyse it with Ollama.
+    """
     if state.get("idle_mode", False):
-        print("[CUS] Idle mode - skipping workers")
+        print("[CUS] Idle mode — workers skipped")
         return {"understory_results": [], "ecosystem_summary": "IDLE MODE"}
 
-    print(f"\n[CUS LVL{state['level']}] Understory workers executing under Enforcer...")
-    workers = [
-        ("network_watcher", "qwen2:0.5b", "Passive network monitor"),
-        ("log_anomaly_specialist", "phi3:mini", "Log anomaly detection"),
-        ("threat_pattern_detector", "phi3:mini", "Threat pattern detection")
-    ]
-    
-    results = []
+    print(f"\n[CUS v5.0] Running {len(WORKER_DEFS)} workers — LVL{state['level']}...")
+    results   = []
     approvals = []
-    
-    for name, model, role in workers:
-        print(f"[ENFORCER] Auto-approved safe action → {name}")
-        
+    blocked   = state.get("blocked_count", 0)
+
+    for name, model, role in WORKER_DEFS:
+        print(f"\n  ▶ {name} ({model})")
+
+        # Spawn credential
         cred = spawn_agent(name, model, role)
-        action_result = f"{name}: Passive scan complete - no anomalies detected"
-        
+
+        # ── Run worker ────────────────────────────────────────────────────────
+        worker_cls = WORKER_REGISTRY.get(name)
+        if worker_cls:
+            try:
+                action_result = worker_cls().run()
+            except Exception as exc:
+                action_result = f"[{name}] Worker error: {exc}"
+                print(f"  ⚠  Worker exception: {exc}")
+        else:
+            # Fallback stub so the graph still runs if import fails
+            action_result = f"[{name}] stub — worker class not loaded"
+
+        print(f"  Output: {action_result[:120]}{'…' if len(action_result) > 120 else ''}")
+
+        # ── Constitution check ────────────────────────────────────────────────
         if not enforcer.enforce_constitution(action_result):
             results.append(f"{name}: CONSTITUTION BLOCKED")
+            blocked += 1
             continue
-            
+
+        # ── Grade output ──────────────────────────────────────────────────────
         grade = cus_grade_and_reward(
             cred,
             action_result=action_result,
-            task=state.get("task", "")
+            task=state.get("task", ""),
         )
-        
-        result_line = f"{name} | {action_result} | graded {grade.get('grade', 88.0):.1f} → {grade.get('decision', 'PROMOTE')}"
+        score    = grade.get("grade", 0)
+        decision = grade.get("decision", "REVIEW")
+        points   = grade.get("points", 0)
+
+        result_line = (
+            f"{name} | score={score:.1f} | {decision} | +{points}pts"
+        )
         results.append(result_line)
-        approvals.append(f"{name}: APPROVED")
-        
-        # Store proposal if any (placeholder for your ideas)
-        if "proposal" in action_result.lower():
-            proposal_file = PROPOSAL_DIR / f"proposal_{int(time.time())}.md"
-            proposal_file.write_text(action_result)
-            print(f"[FOREST] Proposal stored: {proposal_file.name}")
-        
-        time.sleep(0.2)
-    
+        approvals.append(f"{name}: PASSED")
+        print(f"  Grade: {score:.1f} → {decision}")
+
+        # Store full output as a proposal doc for review
+        proposal_file = PROPOSAL_DIR / f"{name}_{int(time.time())}.md"
+        proposal_file.write_text(
+            f"# {name} — {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"**Task**: {state.get('task', '')}\n\n"
+            f"**Output**:\n{action_result}\n\n"
+            f"**Grade**: {score:.1f} → {decision} (+{points} pts)\n"
+        )
+
+        time.sleep(0.1)
+
+    total_promoted = sum(1 for r in results if "PROMOTE" in r)
+    total_blocked  = sum(1 for r in results if "BLOCKED" in r)
+
+    summary = (
+        f"CUS v5.0 LVL{state['level']} cycle complete — "
+        f"{len(results)} workers | "
+        f"{total_promoted} promoted | "
+        f"{total_blocked} blocked"
+    )
+
     return {
         "understory_results": results,
-        "ecosystem_summary": f"CUS LVL{state['level']} cycle complete — {len(results)} workers processed",
+        "ecosystem_summary":  summary,
         "enforcer_approvals": approvals,
-        "workers_spawned": len(workers),
-        "proposals_stored": len(list(PROPOSAL_DIR.glob("*.md")))
+        "workers_spawned":    len(WORKER_DEFS),
+        "proposals_stored":   len(list(PROPOSAL_DIR.glob("*.md"))),
+        "blocked_count":      blocked,
     }
+
+
+# ── Build graph ───────────────────────────────────────────────────────────────
 
 workflow = StateGraph(CUSState)
 workflow.add_node("Headmaster", headmaster_node)
 workflow.add_node("Supervisor", supervisor_node)
-workflow.add_node("Worker", worker_node)
+workflow.add_node("Worker",     worker_node)
 
 workflow.set_entry_point("Headmaster")
 workflow.add_edge("Headmaster", "Supervisor")
 workflow.add_edge("Supervisor", "Worker")
 workflow.add_edge("Worker", END)
 
-memory = MemorySaver()
+memory    = MemorySaver()
 cus_graph = workflow.compile(checkpointer=memory)
 
-def run_cus_swarm(level: int = 1, task: str = "Blue-team monitoring cycle"):
-    print(f"\n🌲 Starting CUS LangGraph v4.0 — Level {level}")
+
+# ── Public entry point ────────────────────────────────────────────────────────
+
+def run_cus_swarm(level: int = 1, task: str = "Blue-team monitoring cycle") -> dict:
+    print(f"\n{'='*60}")
+    print(f"  🌲 Forest CUS LangGraph v5.0")
+    print(f"  Task : {task}")
+    print(f"  Level: {level}")
+    print(f"{'='*60}")
+
     initial_state: CUSState = {
-        "task": task,
-        "level": level,
+        "task":               task,
+        "level":              level,
         "understory_results": [],
-        "ecosystem_summary": "",
+        "ecosystem_summary":  "",
         "enforcer_approvals": [],
-        "workers_spawned": 0,
-        "proposals_stored": 0,
-        "idle_mode": False
+        "workers_spawned":    0,
+        "proposals_stored":   0,
+        "blocked_count":      0,
+        "idle_mode":          False,
     }
-    config = {"configurable": {"thread_id": f"cus-v40-{uuid.uuid4().hex[:8]}"}}
-    
+    config = {"configurable": {"thread_id": f"cus-v50-{uuid.uuid4().hex[:8]}"}}
+
     result = cus_graph.invoke(initial_state, config)
-    
-    print("\n=== CUS Cycle Complete ===")
-    print(f"Workers spawned: {result.get('workers_spawned', 0)}")
-    print(f"Proposals stored: {result.get('proposals_stored', 0)}")
-    print(f"Summary: {result.get('ecosystem_summary')}")
+
+    print(f"\n{'='*60}")
+    print("  CUS Cycle Complete")
+    print(f"  {result.get('ecosystem_summary', '')}")
+    print(f"  Workers   : {result.get('workers_spawned', 0)}")
+    print(f"  Proposals : {result.get('proposals_stored', 0)}")
+    print(f"  Blocked   : {result.get('blocked_count', 0)}")
+    print(f"{'='*60}")
+    print("\n  Results:")
     for r in result.get("understory_results", []):
-        print(f"   → {r}")
+        print(f"    → {r}")
+
     return result
 
+
 if __name__ == "__main__":
-    print("=== Forest CUS LangGraph v4.0 Online — Proposal Queue + Idle Mode ===")
     run_cus_swarm()
