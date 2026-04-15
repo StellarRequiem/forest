@@ -73,22 +73,55 @@ Approve cycle? > yes
 ▶ network_watcher (qwen2.5:3b)
   Output: The network snapshot shows 35 established connections, 26 listening ports.
   Port 11434 (Ollama) and 5900 (VNC) are listening — VNC warrants review if unused.
-  Grade: 88.2 → PROMOTE
+  Grade: 86.2 → PROMOTE
 
 ▶ log_anomaly_specialist (phi3:mini)
-  Output: Repeated failures in acquiring location visibility and daemon identity
-  mismatches in runningboardd. Both warrant investigation for system stability.
-  Grade: 86.9 → PROMOTE
+  Output: Repeated failures in ContinuityCaptureAgent service detected.
+  Both warrant investigation for system stability.
+  Grade: 86.5 → PROMOTE
 
 ▶ threat_pattern_detector (phi3:mini)
   Output: Ollama is the primary memory consumer at 22%. All processes owned by
   llm01. No unfamiliar process names or unusual CPU spikes detected.
-  Grade: 83.0 → MAINTAIN
+  Grade: 90.2 → PROMOTE
+```
+
+---
+
+## Dashboard
+
+A Streamlit dashboard provides a live view of swarm data, trainer tools, and audit chain verification.
+
+```bash
+./bin/forest-dash
+# → http://localhost:8501
+```
+
+**Three tabs:**
+
+| Tab | What it shows |
+|---|---|
+| 🌲 Swarm Monitor | Latest cycle scores, score trend chart, proposal queue, recent audit events |
+| 🎯 Trainer Hub | Phishing detection quiz (19 scenarios), URL risk scanner (15 scenarios), password hygiene checker |
+| 🔐 Audit Chain | SHA-256 chain integrity check, event breakdown table, scrollable event feed |
+
+**Sidebar** shows live CPU/RAM meters, queue count, and total audit events.
+
+**Via Docker** (starts Ollama + dashboard together):
+```bash
+docker-compose up -d
+# Streamlit → http://localhost:8501
+# Ollama API → http://localhost:11434
 ```
 
 ---
 
 ## Tools
+
+### Run the dashboard
+```bash
+./bin/forest-dash              # Streamlit on :8501
+```
 
 ### Review proposals
 ```bash
@@ -100,7 +133,7 @@ Approve cycle? > yes
 ### Verify audit chain
 ```bash
 ./bin/forest-audit               # verify last 1,000 events
-./bin/forest-audit --full        # verify all 270,000+ events
+./bin/forest-audit --full        # verify all events
 ./bin/forest-audit --events      # print recent event log
 ./bin/forest-audit --tail 500    # verify last N events
 ```
@@ -115,17 +148,21 @@ Forest/
 │   ├── cus_langgraph.py        LangGraph state machine (Headmaster → Supervisor → Workers)
 │   ├── workers.py              Three real worker classes (network, log, threat)
 │   ├── grading_engine.py       LLM-backed 4-factor scoring
-│   └── enforcer.py             Constitution gatekeeper (used by core imports)
+│   └── enforcer.py             Constitution gatekeeper
 ├── agents/organs/
 │   ├── enforcer.py             EnforcerTeam v4.0 — qwen2.5:3b judge + deny-list
 │   └── forest_brain.py         Agent credentialing + audit chain logging
+├── dashboard/
+│   ├── app.py                  Streamlit dashboard (3 tabs)
+│   └── scenarios.py            Trainer scenario bank (phishing, URL, password)
 ├── tools/
 │   ├── review.py               Proposal queue browser
 │   └── audit.py                SHA-256 chain verifier
 ├── bin/
+│   ├── forest-dash             Shell launcher for Streamlit dashboard
 │   ├── forest-review           Shell launcher for review tool
 │   └── forest-audit            Shell launcher for audit tool
-├── ForestSuite/                Blue-team trainer applications (phishing, URL, password)
+├── ForestSuite/                Blue-team trainer applications (Tkinter, standalone)
 └── requirements.txt
 ```
 
@@ -153,22 +190,6 @@ Workers (3, sequential)
 
 ---
 
-## Trainer applications
-
-`ForestSuite/` contains standalone blue-team training tools (Tkinter UI):
-- **phishing_trainer_v5.py** — spot phishing emails (5 scenarios)
-- **password_hygiene_trainer.py** — evaluate password strength
-- **url_risk_scanner_trainer.py** — identify risky URLs
-- **dynamic_trainer_v6.py** — dynamic scenario generator
-
-Run any trainer:
-```bash
-source venv/bin/activate
-python3 ForestSuite/phishing_trainer_v5.py
-```
-
----
-
 ## Audit chain
 
 Every event (agent spawn, grading, constitution check, human gate decision) is appended to `~/ForestVault/training_chain.json` as:
@@ -190,6 +211,18 @@ The hash covers the full line content. Run `./bin/forest-audit` to verify none h
 | `qwen2:0.5b` | 352 MB | Fast fallback |
 
 All models run locally. No API keys, no cloud calls.
+
+---
+
+## Trainer applications
+
+`ForestSuite/` contains standalone blue-team training tools (Tkinter UI):
+- **phishing_trainer_v5.py** — spot phishing emails
+- **password_hygiene_trainer.py** — evaluate password strength
+- **url_risk_scanner_trainer.py** — identify risky URLs
+- **dynamic_trainer_v6.py** — dynamic scenario generator
+
+The `dashboard/` tab provides the same training in the web UI without Tkinter.
 
 ---
 

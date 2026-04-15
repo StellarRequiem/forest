@@ -273,6 +273,89 @@ PHISHING_SCENARIOS = [
         "hint": "Twitter's domain ends in .com — what does this one end in?",
         "category": "Social",
     },
+
+    # ── macOS-specific ──
+    {
+        "category": "macOS",
+        "prompt": (
+            "Subject: Your Mac requires a security update — action needed\n\n"
+            "Apple Security has detected a critical vulnerability on your Mac. "
+            "Install the patch immediately to prevent data loss:\n\n"
+            "https://macos-security-patch.com/update?device=MacBookPro"
+        ),
+        "answer": "phishing",
+        "explanation": "Apple delivers macOS updates only through System Settings → Software Update, never via email links to third-party domains.",
+        "hint": "How does macOS normally deliver security updates?",
+        "category": "macOS",
+    },
+    {
+        "category": "macOS",
+        "prompt": (
+            "Subject: iCloud storage is almost full — upgrade now\n\n"
+            "Your iCloud storage (5 GB plan) is 95% full. Photos and backups "
+            "will stop syncing. Upgrade your storage:\n\n"
+            "https://www.apple.com/icloud/#plans"
+        ),
+        "answer": "safe",
+        "explanation": "apple.com/icloud is Apple's legitimate iCloud page. Apple does send genuine storage alerts linking to their own domain.",
+        "hint": "Is apple.com Apple's real domain?",
+        "category": "macOS",
+    },
+    {
+        "category": "macOS",
+        "prompt": (
+            "Subject: Gatekeeper alert — malware found on your Mac\n\n"
+            "Our scan detected MacStealer malware on your device. Your passwords "
+            "and crypto wallets may be at risk.\n\n"
+            "Remove it now: https://mac-malware-remover.net/clean"
+        ),
+        "answer": "phishing",
+        "explanation": "Gatekeeper never sends emails. Unsolicited 'malware found' emails are scareware — clicking the link typically installs the actual malware.",
+        "hint": "Does Apple's Gatekeeper communicate by email?",
+        "category": "macOS",
+    },
+
+    # ── AI / LLM social engineering ──
+    {
+        "category": "AI / LLM",
+        "prompt": (
+            "Subject: Your ChatGPT Plus subscription is expiring\n\n"
+            "Your ChatGPT Plus subscription expires in 48 hours. "
+            "Renew now to keep GPT-4 access:\n\n"
+            "https://chatgpt-plus-renew.com/billing"
+        ),
+        "answer": "phishing",
+        "explanation": "OpenAI manages subscriptions at platform.openai.com only. 'chatgpt-plus-renew.com' is a credential-harvesting site targeting AI users.",
+        "hint": "What domain does OpenAI use for billing?",
+        "category": "AI / LLM",
+    },
+    {
+        "category": "AI / LLM",
+        "prompt": (
+            "Subject: Anthropic: Verify your Claude account\n\n"
+            "We noticed a login from an unrecognized device. Verify your "
+            "identity to keep your Claude Pro access:\n\n"
+            "https://claude.anthropic.com/verify"
+        ),
+        "answer": "safe",
+        "explanation": "claude.anthropic.com is Anthropic's legitimate subdomain. This format matches real account verification emails from Anthropic.",
+        "hint": "Is claude.anthropic.com a real Anthropic domain?",
+        "category": "AI / LLM",
+    },
+    {
+        "category": "AI / LLM",
+        "prompt": (
+            "Subject: You've been invited to join an exclusive AI safety research group\n\n"
+            "I'm a researcher at a leading AI lab. We're building a private "
+            "community of security professionals. Join here and share your "
+            "current projects:\n\n"
+            "https://ai-safety-researchers.io/join?ref=security"
+        ),
+        "answer": "phishing",
+        "explanation": "Unsolicited 'exclusive research group' invitations are social engineering. Sharing your active projects with unknown parties is an intelligence gathering attack.",
+        "hint": "Why would a real research group cold-email you to share confidential projects?",
+        "category": "AI / LLM",
+    },
 ]
 
 

@@ -1,12 +1,16 @@
-# Python
+# Python bytecode
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
+
+# Virtual environments
 venv/
 env/
 ENV/
+
+# Build artifacts
 *.egg-info/
 dist/
 build/
@@ -18,29 +22,17 @@ build/
 *.swo
 *~
 
-# Database & Cache
-*.db
-*.sqlite
-*.rdb
+# macOS
 .DS_Store
 
-# Environment
+# Secrets / environment
 .env
 .env.local
 
-# Dify volumes (large)
+# Runtime data — not source code
 dify/volumes/
+ForestVault/
 
 # Test artifacts
 .pytest_cache/
 *.log
-
-# Vault (local only)
-ForestVault/
-
-
-# Dify volumes (runtime data, not source)
-dify/volumes/
-
-# ForestVault (runtime data, audit logs — too large for git)
-ForestVault/
