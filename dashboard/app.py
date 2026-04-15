@@ -36,6 +36,9 @@ VAULT         = Path.home() / "ForestVault"
 PROPOSALS_DIR = VAULT / "proposals"
 ARCHIVE_DIR   = VAULT / "proposals_archive"
 CHAIN_FILE    = VAULT / "training_chain.json"
+PID_FILE      = VAULT / ".monitor_pid"
+PAUSE_FILE    = VAULT / ".paused"
+LOG_FILE      = VAULT / "monitor.log"
 HASH_SUFFIX   = " | Hash: "
 
 # ── Scenario data ─────────────────────────────────────────────────────────────
@@ -148,8 +151,31 @@ def render_sidebar() -> None:
     st.sidebar.caption("Blue-Team AI Monitoring Swarm")
     st.sidebar.divider()
 
+    # ── Monitoring toggle ─────────────────────────────────────────────────────
+    status = monitoring_status()
+    if status["running"] and not status["paused"]:
+        st.sidebar.success("● Monitoring active")
+    elif status["running"] and status["paused"]:
+        st.sidebar.warning("⏸ Monitoring paused")
+    else:
+        st.sidebar.error("○ Monitoring off")
+
+    if status["running"]:
+        if status["paused"]:
+            if st.sidebar.button("▶ Resume", use_container_width=True, type="primary"):
+                PAUSE_FILE.unlink(missing_ok=True)
+                st.rerun()
+        else:
+            if st.sidebar.button("⏸ Pause", use_container_width=True):
+                PAUSE_FILE.touch()
+                st.rerun()
+    else:
+        st.sidebar.caption("Start: `forest start`")
+
+    st.sidebar.divider()
+
     queue_count   = len(list(PROPOSALS_DIR.glob("*.md")))
-    archive_count = len(list(ARCHIVE_DIR.rglob("*.md")))
+    archive_count = len(list(ARCHIVE_DIR.rglob("*.md"))) if ARCHIVE_DIR.exists() else 0
     cs            = chain_stats()
 
     st.sidebar.metric("Proposals in queue", queue_count)
@@ -158,12 +184,16 @@ def render_sidebar() -> None:
 
     st.sidebar.divider()
 
-    # System snapshot
+    # ── System snapshot ───────────────────────────────────────────────────────
     cpu = psutil.cpu_percent(interval=0.3)
     mem = psutil.virtual_memory()
-    st.sidebar.caption("System")
-    st.sidebar.progress(int(cpu),  text=f"CPU {cpu:.0f}%")
+    st.sidebar.caption("System load")
+    st.sidebar.progress(int(cpu),         text=f"CPU {cpu:.0f}%")
     st.sidebar.progress(int(mem.percent), text=f"RAM {mem.percent:.0f}%")
+    st.sidebar.caption(
+        "Forest CUS typical load: CPU 5–15% per cycle, "
+        "RAM +300–600 MB while Ollama runs inference."
+    )
 
     st.sidebar.divider()
     st.sidebar.caption(f"Refreshed: {datetime.now().strftime('%H:%M:%S')}")
@@ -178,10 +208,123 @@ def render_sidebar() -> None:
 
 DECISION_COLOR = {"PROMOTE": "🟢", "MAINTAIN": "🟡", "REVIEW": "🔴"}
 WORKER_ICON    = {
-    "network_watcher":        "🌐",
-    "log_anomaly_specialist": "📋",
-    "threat_pattern_detector":"🛡️",
+    "network_watcher":         "🌐",
+    "log_anomaly_specialist":  "📋",
+    "threat_pattern_detector": "🛡️",
+    "semantic_drift_detector": "📡",
 }
+
+
+# ── Monitoring status helpers ─────────────────────────────────────────────────
+
+def monitoring_status() -> dict:
+    """Read PID file and pause flag to determine current monitor state."""
+    running = False
+    pid     = None
+    if PID_FILE.exists():
+        try:
+            pid = int(PID_FILE.read_text().strip())
+            import os, signal
+            os.kill(pid, 0)   # raises OSError if process is gone
+            running = True
+        except (OSError, ValueError):
+            pid = None
+    paused = PAUSE_FILE.exists()
+    return {"running": running, "paused": paused, "pid": pid}
+
+
+def threat_level(proposals: list[dict]) -> dict:
+    """
+    Compute a GREEN / YELLOW / RED threat level from the most recent cycle.
+
+    GREEN  — all workers scored ≥ 80, no BLOCKED, no SIGNIFICANT_DRIFT
+    YELLOW — any worker scored 65–79, or MINOR/MODERATE_DRIFT detected
+    RED    — any worker scored < 65, any BLOCKED, or SIGNIFICANT_DRIFT
+    """
+    if not proposals:
+        return {"level": "unknown", "color": "⚪", "reason": "No data yet — run a cycle."}
+
+    recent = proposals[:4]   # latest cycle (up to 4 workers)
+    scores  = [p["score"]   for p in recent if p["score"] > 0]
+    blocked = [p["worker"]  for p in recent if p["decision"] == "BLOCKED"]
+
+    # Check drift worker output for explicit verdicts
+    drift_verdict = ""
+    for p in recent:
+        if p["worker"] == "semantic_drift_detector":
+            out = p.get("output", "")
+            if "SIGNIFICANT_DRIFT" in out:
+                drift_verdict = "SIGNIFICANT_DRIFT"
+            elif "MODERATE_DRIFT" in out:
+                drift_verdict = "MODERATE_DRIFT"
+            elif "MINOR_DRIFT" in out:
+                drift_verdict = "MINOR_DRIFT"
+
+    if blocked or drift_verdict == "SIGNIFICANT_DRIFT" or (scores and min(scores) < 65):
+        parts = []
+        if blocked:
+            parts.append(f"Blocked worker(s): {', '.join(blocked)}")
+        if drift_verdict == "SIGNIFICANT_DRIFT":
+            parts.append("Significant behavioral drift detected")
+        if scores and min(scores) < 65:
+            parts.append(f"Low score: {min(scores):.0f}")
+        return {"level": "red", "color": "🔴",
+                "reason": " · ".join(parts) or "Review required"}
+
+    if drift_verdict in ("MODERATE_DRIFT", "MINOR_DRIFT") or (scores and min(scores) < 80):
+        parts = []
+        if drift_verdict:
+            parts.append(drift_verdict.replace("_", " ").title())
+        if scores and min(scores) < 80:
+            parts.append(f"Score dip: {min(scores):.0f}")
+        return {"level": "yellow", "color": "🟡",
+                "reason": " · ".join(parts) or "Minor anomalies"}
+
+    avg = sum(scores) / len(scores) if scores else 0
+    return {"level": "green", "color": "🟢",
+            "reason": f"All workers nominal · avg score {avg:.0f}"}
+
+
+def render_status_banner(status: dict, threat: dict) -> None:
+    """Big visible status row at the top of the Swarm Monitor tab."""
+    if status["running"] and not status["paused"]:
+        mon_label = "🟢  Monitoring: **ACTIVE**"
+        mon_color = "normal"
+    elif status["running"] and status["paused"]:
+        mon_label = "🟡  Monitoring: **PAUSED**"
+        mon_color = "normal"
+    else:
+        mon_label = "⚫  Monitoring: **OFF**"
+        mon_color = "normal"
+
+    threat_label = (
+        f"{threat['color']}  Threat Level: **{threat['level'].upper()}**"
+        f"  —  {threat['reason']}"
+    )
+
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        st.markdown(f"### {mon_label}")
+        if status["running"]:
+            if status["paused"]:
+                if st.button("▶  Resume monitoring", use_container_width=True, type="primary"):
+                    PAUSE_FILE.unlink(missing_ok=True)
+                    st.rerun()
+            else:
+                if st.button("⏸  Pause monitoring", use_container_width=True):
+                    PAUSE_FILE.touch()
+                    st.rerun()
+        else:
+            st.caption("Start with:  `forest start`")
+    with c2:
+        if threat["level"] == "red":
+            st.error(f"**{threat['color']} Threat Level: RED** — {threat['reason']}")
+        elif threat["level"] == "yellow":
+            st.warning(f"**{threat['color']} Threat Level: YELLOW** — {threat['reason']}")
+        elif threat["level"] == "green":
+            st.success(f"**{threat['color']} Threat Level: GREEN** — {threat['reason']}")
+        else:
+            st.info("No monitoring data yet. Run `forest start` to begin.")
 
 def render_swarm_monitor() -> None:
     st.header("🌲 Swarm Monitor")
@@ -190,14 +333,25 @@ def render_swarm_monitor() -> None:
     arch_props = load_proposals(ARCHIVE_DIR) if ARCHIVE_DIR.exists() else []
     all_data   = all_props + arch_props
 
+    # ── Status banner (always shown) ─────────────────────────────────────────
+    status = monitoring_status()
+    threat = threat_level(all_props[:4] if all_props else [])
+    render_status_banner(status, threat)
+    st.divider()
+
     if not all_data:
-        st.info("No proposals yet. Run a swarm cycle to see data here.\n\n"
-                "```bash\necho 'yes' | python3 core/cus_langgraph.py\n```")
+        st.info(
+            "**No monitoring data yet.**\n\n"
+            "Start continuous monitoring with:\n"
+            "```bash\nforest start\n```\n"
+            "Or run a single cycle:\n"
+            "```bash\necho 'yes' | python3 core/cus_langgraph.py\n```"
+        )
         return
 
     # ── Latest cycle summary ──────────────────────────────────────────────────
     st.subheader("Latest Cycle")
-    latest = all_props[:3] if all_props else all_data[:3]
+    latest = all_props[:4] if all_props else all_data[:4]
 
     cols = st.columns(len(latest))
     for col, p in zip(cols, latest):

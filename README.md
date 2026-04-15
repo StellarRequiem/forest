@@ -29,10 +29,12 @@ The human gate requires explicit approval (`yes`) before each cycle runs.
 
 ## Requirements
 
-- macOS 13+ or Ubuntu 22.04+
+- **macOS 13+** (primary platform — all features tested and working)
 - Python 3.10+
 - [Ollama](https://ollama.ai) running locally
-- 8 GB RAM minimum (16 GB recommended)
+- 8 GB RAM minimum (16 GB recommended — see hardware table below)
+
+> **Linux note:** Core monitoring works on Ubuntu 22.04+. However, `log show` is macOS-only, so `log_anomaly_specialist` falls back to `/var/log/syslog`. Desktop notifications (`--alert`) are macOS-only. Dashboard and audit tools are platform-neutral.
 
 ---
 
@@ -44,24 +46,27 @@ cd forest
 bash setup.sh
 ```
 
-`setup.sh` handles everything: Python venv, dependencies, Ollama install, model pulls, and directory setup. Takes about 5 minutes on a new machine (model downloads dominate).
+`setup.sh` handles everything: Python venv, dependencies, Ollama install (Homebrew on macOS / curl on Linux), model pulls, and ForestVault directory. Takes about 5 minutes on a new machine (model downloads are the bottleneck).
 
-After setup:
+After setup, use the `forest` CLI for everything:
+
 ```bash
-source venv/bin/activate
+source venv/bin/activate      # activate venv once per session
 
-# One monitoring cycle
-echo "yes" | python3 core/cus_langgraph.py
-
-# Or continuous mode (runs every 30 min, desktop alerts on low scores)
-python3 core/cus_langgraph.py --continuous 30 --alert
+forest start                  # start continuous monitoring (every 30 min)
+forest dash                   # open dashboard at http://localhost:8501
+forest pause                  # pause between cycles without stopping
+forest resume                 # resume after pause
+forest stop                   # shut down completely
+forest status                 # check current state
+forest log                    # tail the live monitor log
 ```
 
-**Optional — threat intel (free):**
+**Optional — AbuseIPDB threat intel (free, 1000 checks/day):**
 ```bash
-# Sign up at https://www.abuseipdb.com, then:
 echo "ABUSEIPDB_API_KEY=your_key_here" >> .env
 source .env
+# Sign up at https://www.abuseipdb.com — no credit card required
 ```
 
 **Example output:**
@@ -118,26 +123,31 @@ docker-compose up -d
 
 ---
 
-## Tools
+## CLI reference
 
-### Run the dashboard
-```bash
-./bin/forest-dash              # Streamlit on :8501
-```
+The `forest` command is the primary entry point. The individual `bin/` tools still work for advanced use.
 
-### Review proposals
 ```bash
-./bin/forest-review              # interactive ranked table
+# Primary CLI (after `source venv/bin/activate`)
+forest start [N]    # start monitoring every N minutes (default: 30)
+forest stop         # stop monitoring
+forest status       # show running/paused/off state
+forest dash         # open dashboard in browser
+forest pause        # pause between cycles (process stays alive)
+forest resume       # resume after pause
+forest log          # tail the live monitor log
+
+# Advanced tools
+./bin/forest-review              # interactive proposal queue browser
 ./bin/forest-review --summary    # one-shot table, exit
 ./bin/forest-review --clear      # archive queue to ~/ForestVault/proposals_archive/
-```
 
-### Verify audit chain
-```bash
-./bin/forest-audit               # verify last 1,000 events
+./bin/forest-audit               # verify last 1,000 audit events
 ./bin/forest-audit --full        # verify all events
 ./bin/forest-audit --events      # print recent event log
-./bin/forest-audit --tail 500    # verify last N events
+
+./bin/forest-report              # score trend report (last 7 days)
+./bin/forest-report --days 30    # wider window
 ```
 
 ---
@@ -165,10 +175,14 @@ Forest/
 │   ├── audit.py                SHA-256 chain verifier
 │   └── report.py               Score trend report (--days N)
 ├── bin/
+│   ├── forest              ← PRIMARY CLI: start/stop/dash/pause/resume
 │   ├── forest-dash             Streamlit dashboard launcher
 │   ├── forest-review           Proposal queue launcher
 │   ├── forest-audit            Audit chain verifier launcher
 │   └── forest-report           Score report launcher
+├── build/
+│   ├── ForestLauncher.py       Tkinter launcher (bundled into Forest.app)
+│   └── build_app.sh            PyInstaller build script → Forest.app
 ├── ForestSuite/                Blue-team trainer applications (Tkinter, standalone)
 ├── setup.sh                    One-command installer
 ├── .env.example                Config template (AbuseIPDB key, thresholds)

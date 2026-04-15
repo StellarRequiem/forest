@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+# forest — unified CLI for Forest CUS
+#
+# Usage:
+#   forest start [N]   Start continuous monitoring every N minutes (default: 30)
+#   forest stop        Stop the monitoring process
+#   forest status      Show current status
+#   forest dash        Open the dashboard in your browser
+#   forest pause       Pause monitoring between cycles (process stays alive)
+#   forest resume      Resume after pause
+#   forest log         Tail the monitor log
+
+set -euo pipefail
+
+FOREST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+VAULT_DIR="${HOME}/ForestVault"
+PID_FILE="${VAULT_DIR}/.monitor_pid"
+PAUSE_FILE="${VAULT_DIR}/.paused"
+LOG_FILE="${VAULT_DIR}/monitor.log"
+VENV="${FOREST_DIR}/venv"
+
+BOLD="\033[1m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+RED="\033[31m"
+DIM="\033[2m"
+RESET="\033[0m"
+
+COMMAND="${1:-help}"
+INTERVAL="${2:-30}"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+_activate_venv() {
+    if [[ -f "${VENV}/bin/activate" ]]; then
+        # shellcheck disable=SC1090
+        source "${VENV}/bin/activate"
+    else
+        echo -e "${RED}  ✗ venv not found. Run: bash setup.sh${RESET}"
+        exit 1
+    fi
+}
+
+_is_running() {
+    [[ -f "${PID_FILE}" ]] && kill -0 "$(cat "${PID_FILE}")" 2>/dev/null
+}
+
+_is_paused() {
+    [[ -f "${PAUSE_FILE}" ]]
+}
+
+_status_line() {
+    if _is_running; then
+        PID=$(cat "${PID_FILE}")
+        if _is_paused; then
+            echo -e "${YELLOW}  ⏸  PAUSED${RESET}      (PID ${PID}, will skip next cycle)"
+        else
+            echo -e "${GREEN}  ●  RUNNING${RESET}     (PID ${PID}, interval=${INTERVAL}m)"
+        fi
+    else
+        echo -e "${DIM}  ○  NOT RUNNING${RESET}"
+    fi
+}
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+case "$COMMAND" in
+
+start)
+    mkdir -p "${VAULT_DIR}"
+    if _is_running; then
+        PID=$(cat "${PID_FILE}")
+        echo -e "${YELLOW}  ⚠  Forest CUS is already running (PID ${PID})${RESET}"
+        echo "     Use: forest stop  — to stop it first"
+        exit 0
+    fi
+    _activate_venv
+    rm -f "${PAUSE_FILE}"
+    nohup python3 "${FOREST_DIR}/core/cus_langgraph.py" \
+        --continuous "${INTERVAL}" --alert \
+        > "${LOG_FILE}" 2>&1 &
+    echo "$!" > "${PID_FILE}"
+    echo -e "${GREEN}  ✓  Forest CUS started${RESET}"
+    echo "     Monitoring every ${INTERVAL} minutes"
+    echo "     Log:  ${LOG_FILE}"
+    echo "     Run 'forest dash' to open the dashboard"
+    ;;
+
+stop)
+    if _is_running; then
+        PID=$(cat "${PID_FILE}")
+        kill "${PID}" 2>/dev/null || true
+        rm -f "${PID_FILE}" "${PAUSE_FILE}"
+        echo -e "${GREEN}  ✓  Forest CUS stopped (PID ${PID})${RESET}"
+    else
+        echo -e "${DIM}  Forest CUS is not running.${RESET}"
+    fi
+    ;;
+
+status)
+    echo ""
+    echo -e "${BOLD}  Forest CUS Status${RESET}"
+    echo "  ─────────────────────────────"
+    _status_line
+    echo ""
+    if [[ -f "${LOG_FILE}" ]]; then
+        echo -e "${DIM}  Last log line:${RESET}"
+        tail -1 "${LOG_FILE}" | sed 's/^/    /'
+    fi
+    echo ""
+    ;;
+
+dash)
+    _activate_venv
+    # Kill any stale Streamlit on 8501
+    lsof -ti:8501 | xargs kill -9 2>/dev/null || true
+    streamlit run "${FOREST_DIR}/dashboard/app.py" \
+        --server.headless true \
+        --server.port 8501 \
+        --browser.gatherUsageStats false \
+        > "${VAULT_DIR}/dashboard.log" 2>&1 &
+    sleep 2
+    open "http://localhost:8501" 2>/dev/null || \
+        echo "  Dashboard running at http://localhost:8501"
+    echo -e "${GREEN}  ✓  Dashboard opened${RESET}"
+    ;;
+
+pause)
+    if ! _is_running; then
+        echo -e "${DIM}  Forest CUS is not running — nothing to pause.${RESET}"
+        exit 0
+    fi
+    touch "${PAUSE_FILE}"
+    echo -e "${YELLOW}  ⏸  Forest CUS paused${RESET}"
+    echo "     Monitoring cycles will skip until you run: forest resume"
+    ;;
+
+resume)
+    rm -f "${PAUSE_FILE}"
+    if _is_running; then
+        echo -e "${GREEN}  ▶  Forest CUS resumed${RESET}"
+    else
+        echo -e "${DIM}  Pause flag cleared. Run 'forest start' to begin monitoring.${RESET}"
+    fi
+    ;;
+
+log)
+    if [[ -f "${LOG_FILE}" ]]; then
+        tail -f "${LOG_FILE}"
+    else
+        echo -e "${DIM}  No log file yet. Run 'forest start' first.${RESET}"
+    fi
+    ;;
+
+*)
+    echo ""
+    echo -e "${BOLD}  Forest CUS — Blue-Team AI Monitoring${RESET}"
+    echo ""
+    echo "  Usage: forest <command> [options]"
+    echo ""
+    echo "  Commands:"
+    echo "    start [N]   Start monitoring every N minutes (default: 30)"
+    echo "    stop        Stop the monitoring process"
+    echo "    status      Show current status"
+    echo "    dash        Open the dashboard in browser"
+    echo "    pause       Pause between cycles (process stays alive)"
+    echo "    resume      Resume after pause"
+    echo "    log         Tail the live monitor log"
+    echo ""
+    echo "  Examples:"
+    echo "    forest start          # monitor every 30 min, desktop alerts on threats"
+    echo "    forest start 15       # monitor every 15 min"
+    echo "    forest dash           # open dashboard at http://localhost:8501"
+    echo "    forest pause          # temporarily pause monitoring"
+    echo "    forest resume         # resume monitoring"
+    echo "    forest stop           # shut down completely"
+    echo ""
+    ;;
+
+esac

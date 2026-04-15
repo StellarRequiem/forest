@@ -10,10 +10,14 @@ venv/
 env/
 ENV/
 
-# Build artifacts
+# Build artifacts — exclude PyInstaller output but track source
 *.egg-info/
 dist/
-build/
+build/*.pyc
+build/__pycache__/
+# Track build/*.py and build/*.sh (launcher source + build scripts)
+!build/ForestLauncher.py
+!build/build_app.sh
 *.spec
 
 # IDE

@@ -74,6 +74,9 @@ PROPOSAL_DIR  = Path.home() / "ForestVault" / "proposals"
 PROPOSAL_DIR.mkdir(exist_ok=True)
 MAX_PROPOSALS = 20
 
+# Pause/resume flag written by `forest pause` / dashboard toggle
+PAUSE_FILE = Path.home() / "ForestVault" / ".paused"
+
 # Worker definitions: (registry_key, model, role_description)
 WORKER_DEFS = [
     ("network_watcher",         "qwen2.5:3b",       "Passive network monitor"),
@@ -426,6 +429,14 @@ def run_continuous(interval_minutes: int,
 
     try:
         while True:
+            # ── Pause check (set by `forest pause` or dashboard toggle) ──────
+            if PAUSE_FILE.exists():
+                print(f"\n  [PAUSED] Monitoring paused — waiting for resume…")
+                print(f"  Run: forest resume  —or—  click Resume in the dashboard")
+                while PAUSE_FILE.exists():
+                    time.sleep(10)
+                print(f"\n  [RESUMED] Monitoring resumed.")
+
             _run_one()
             sleep_secs = interval_minutes * 60
             print(f"\n  Sleeping {interval_minutes}m until next cycle… (Ctrl-C to stop)")
