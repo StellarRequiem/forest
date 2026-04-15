@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """
-Forest Workers v1.2 — Real system data + Ollama analysis + baseline delta
+Forest Workers v1.3 — Real system data + Ollama analysis + baseline delta
+                       + hard detection rules + AbuseIPDB threat intel
+
+v1.3 changes:
+  - NetworkWatcher: integrates core.rules (port/IP rules) and core.intel
+    (AbuseIPDB reputation lookups). Rule alerts and intel alerts are injected
+    into the LLM prompt before the assessment is written.
+  - ThreatPatternDetector: integrates core.rules (process name rules).
+  - Both modules degrade gracefully when rules/intel are unavailable.
 
 v1.2 changes:
   - NetworkWatcher: injects [DELTA] block into LLM prompt when new/removed
@@ -33,6 +41,22 @@ except ImportError:
         import baseline as _baseline
     except ImportError:
         _baseline = None
+
+try:
+    from core import rules as _rules
+except ImportError:
+    try:
+        import rules as _rules
+    except ImportError:
+        _rules = None
+
+try:
+    from core import intel as _intel
+except ImportError:
+    try:
+        import intel as _intel
+    except ImportError:
+        _intel = None
 
 # ── shared helpers ────────────────────────────────────────────────────────────
 
@@ -76,6 +100,7 @@ class NetworkWatcher:
     def run(self) -> str:
         snapshot, ports, ext_ips = self._gather()
 
+        # ── Baseline delta ────────────────────────────────────────────────────
         delta_block = ""
         if _baseline:
             b = _baseline.load()
@@ -88,15 +113,31 @@ class NetworkWatcher:
             else "\n[No baseline changes detected]\n"
         )
 
+        # ── Hard detection rules ──────────────────────────────────────────────
+        rule_section = ""
+        if _rules:
+            net_alerts = _rules.check_network_rules(ports, ext_ips)
+            if net_alerts:
+                rule_section = "\n" + _rules.format_rule_alerts(net_alerts) + "\n"
+
+        # ── AbuseIPDB threat intel ────────────────────────────────────────────
+        intel_section = ""
+        if _intel:
+            findings = _intel.check_ips(ext_ips)
+            if findings:
+                intel_section = "\n" + _intel.format_intel_alerts(findings) + "\n"
+
         prompt = (
             "You are a blue-team network analyst.\n"
             "Review this network snapshot and give a 2–3 sentence assessment.\n"
-            "Pay special attention to any DELTA items — those represent changes "
-            "since the last known-good baseline.\n"
+            "Pay special attention to DELTA, RULE ALERT, and INTEL ALERT items — "
+            "these represent changes or confirmed threats that need your attention.\n"
             "Flag anything unusual: unexpected external IPs, unusual listening ports, "
             "or abnormal connection counts.\n\n"
             f"Snapshot ({_timestamp()}):\n{snapshot}"
-            f"{delta_section}\n"
+            f"{delta_section}"
+            f"{rule_section}"
+            f"{intel_section}"
             "Assessment:"
         )
         analysis = _call_llm(self.MODEL, prompt)
@@ -298,6 +339,7 @@ class ThreatPatternDetector:
     def run(self) -> str:
         snapshot, proc_names = self._gather()
 
+        # ── Baseline delta ────────────────────────────────────────────────────
         delta_block = ""
         if _baseline:
             b = _baseline.load()
@@ -310,15 +352,23 @@ class ThreatPatternDetector:
             else "\n[No baseline changes detected]\n"
         )
 
+        # ── Hard detection rules ──────────────────────────────────────────────
+        rule_section = ""
+        if _rules:
+            proc_alerts = _rules.check_process_rules(proc_names)
+            if proc_alerts:
+                rule_section = "\n" + _rules.format_rule_alerts(proc_alerts) + "\n"
+
         prompt = (
             "You are a threat detection analyst.\n"
             "Review these running processes and give a 2–3 sentence assessment.\n"
-            "Pay special attention to any DELTA items — those are processes that "
-            "were not running during the last known-good baseline.\n"
+            "Pay special attention to DELTA and RULE ALERT items — those represent "
+            "changes or confirmed suspicious processes that need your attention.\n"
             "Flag: unusually high CPU or memory usage, unfamiliar process names, "
             "or patterns that could indicate malware, cryptomining, or compromise.\n\n"
             f"Process snapshot ({_timestamp()}):\n{snapshot}"
-            f"{delta_section}\n"
+            f"{delta_section}"
+            f"{rule_section}"
             "Threat assessment:"
         )
         analysis = _call_llm(self.MODEL, prompt)

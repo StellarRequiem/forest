@@ -28,38 +28,39 @@ The human gate requires explicit approval (`yes`) before each cycle runs.
 
 ## Requirements
 
-- macOS (tested) or Linux
+- macOS 13+ or Ubuntu 22.04+
 - Python 3.10+
-- [Ollama](https://ollama.ai) running locally with these models pulled:
-  ```bash
-  ollama pull qwen2.5:3b
-  ollama pull phi3:mini
-  ollama pull qwen2:0.5b
-  ```
-- Python dependencies (install into venv):
-  ```bash
-  python3 -m venv venv
-  source venv/bin/activate
-  pip install -r requirements.txt
-  ```
+- [Ollama](https://ollama.ai) running locally
+- 8 GB RAM minimum (16 GB recommended)
 
 ---
 
 ## Quick start
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/forest.git
+git clone https://github.com/StellarRequiem/forest.git
 cd forest
+bash setup.sh
+```
 
-python3 -m venv venv
+`setup.sh` handles everything: Python venv, dependencies, Ollama install, model pulls, and directory setup. Takes about 5 minutes on a new machine (model downloads dominate).
+
+After setup:
+```bash
 source venv/bin/activate
-pip install -r requirements.txt
 
-# Start Ollama (if not already running)
-ollama serve &
-
-# Run one monitoring cycle
+# One monitoring cycle
 echo "yes" | python3 core/cus_langgraph.py
+
+# Or continuous mode (runs every 30 min, desktop alerts on low scores)
+python3 core/cus_langgraph.py --continuous 30 --alert
+```
+
+**Optional — threat intel (free):**
+```bash
+# Sign up at https://www.abuseipdb.com, then:
+echo "ABUSEIPDB_API_KEY=your_key_here" >> .env
+source .env
 ```
 
 **Example output:**
@@ -146,7 +147,10 @@ docker-compose up -d
 Forest/
 ├── core/
 │   ├── cus_langgraph.py        LangGraph state machine (Headmaster → Supervisor → Workers)
-│   ├── workers.py              Three real worker classes (network, log, threat)
+│   ├── workers.py              Three worker classes — network, log, threat
+│   ├── baseline.py             Known-good snapshot + delta computation
+│   ├── rules.py                Hard detection rules (ports, processes, paths)
+│   ├── intel.py                AbuseIPDB threat intel + 24h file cache
 │   ├── grading_engine.py       LLM-backed 4-factor scoring
 │   └── enforcer.py             Constitution gatekeeper
 ├── agents/organs/
@@ -157,14 +161,33 @@ Forest/
 │   └── scenarios.py            Trainer scenario bank (phishing, URL, password)
 ├── tools/
 │   ├── review.py               Proposal queue browser
-│   └── audit.py                SHA-256 chain verifier
+│   ├── audit.py                SHA-256 chain verifier
+│   └── report.py               Score trend report (--days N)
 ├── bin/
-│   ├── forest-dash             Shell launcher for Streamlit dashboard
-│   ├── forest-review           Shell launcher for review tool
-│   └── forest-audit            Shell launcher for audit tool
+│   ├── forest-dash             Streamlit dashboard launcher
+│   ├── forest-review           Proposal queue launcher
+│   ├── forest-audit            Audit chain verifier launcher
+│   └── forest-report           Score report launcher
 ├── ForestSuite/                Blue-team trainer applications (Tkinter, standalone)
+├── setup.sh                    One-command installer
+├── .env.example                Config template (AbuseIPDB key, thresholds)
+├── baseline_example.json       Annotated example of ~/ForestVault/baseline.json
 └── requirements.txt
 ```
+
+---
+
+## Detection layers
+
+Each swarm cycle runs three independent detection layers before the LLM writes its assessment:
+
+| Layer | What it does | Requires |
+|---|---|---|
+| **Baseline delta** | Compares current ports/processes/IPs to your last known-good snapshot. New items are flagged as `[DELTA]`. | First cycle auto-creates the baseline. |
+| **Hard rules** | Instant checks against a deny-list of suspicious ports (4444, 31337, etc.), process names (nc, xmrig, etc.), and executable paths (/tmp/). Results injected as `[RULE ALERT]`. | Built-in, no config needed. |
+| **Threat intel** | Checks external IPs against AbuseIPDB's reputation database. Results injected as `[INTEL ALERT]` with confidence score. Cached 24 hours. | Free AbuseIPDB API key. |
+
+All three layers feed into the same LLM prompt, so the model sees everything at once and writes a unified assessment.
 
 ---
 
@@ -176,9 +199,9 @@ Headmaster  →  scan tmux sessions, check for dangerous processes
 Supervisor  →  HUMAN GATE: operator types "yes" to approve
     ↓
 Workers (3, sequential)
-    ├─ network_watcher       gather netstat data → LLM analysis
-    ├─ log_anomaly_specialist gather system logs → LLM analysis
-    └─ threat_pattern_detector gather process list → LLM analysis
+    ├─ network_watcher       netstat → baseline delta + rules + intel → LLM
+    ├─ log_anomaly_specialist system logs → LLM
+    └─ threat_pattern_detector processes → baseline delta + rules → LLM
          ↓ each worker output:
     Constitution check (qwen2.5:3b at temp 0.0)
          ↓ if SAFE:
@@ -211,6 +234,36 @@ The hash covers the full line content. Run `./bin/forest-audit` to verify none h
 | `qwen2:0.5b` | 352 MB | Fast fallback |
 
 All models run locally. No API keys, no cloud calls.
+
+---
+
+## Hardware recommendations
+
+Forest CUS is tested on a **Mac Mini M4 (16 GB unified memory)**. This is the recommended minimum for running all three workers in parallel without swap pressure.
+
+| RAM | Recommended model config | Performance |
+|---|---|---|
+| 8 GB | `qwen2:0.5b` for all workers | Functional — slower, lower analysis quality. Disable intel to reduce memory. |
+| 16 GB | `qwen2.5:3b` (network) + `phi3:mini` (logs, threat) | **Recommended** — this is the default config. Smooth cycle times ~25–40 sec. |
+| 32 GB+ | Upgrade to `qwen2.5:7b` or `mistral:7b` | Better reasoning, fewer missed signals. Swap workers.py model constants. |
+
+**CPU vs Apple Silicon:**
+- Apple Silicon (M1–M4): Ollama uses the Neural Engine natively. All models run fast, low fan noise, low power.
+- Intel Mac / AMD PC: Models run on CPU via llama.cpp — 2–5× slower on equivalent RAM, louder fans. Still works; just expect longer cycle times.
+- NVIDIA GPU (Linux): Ollama uses CUDA automatically. 7B+ models become practical on 8+ GB VRAM.
+
+**To upgrade models** (edit `core/workers.py`):
+```python
+class NetworkWatcher:
+    MODEL = "qwen2.5:7b"   # upgrade from qwen2.5:3b for better network analysis
+
+class LogAnomalySpecialist:
+    MODEL = "mistral:7b"   # upgrade from phi3:mini for richer log interpretation
+
+class ThreatPatternDetector:
+    MODEL = "mistral:7b"   # upgrade from phi3:mini for better threat reasoning
+```
+Then `ollama pull qwen2.5:7b` / `ollama pull mistral:7b`.
 
 ---
 

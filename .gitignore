@@ -26,10 +26,11 @@ build/
 # macOS
 .DS_Store
 
-# Secrets / environment
+# Secrets / environment (keep .env.example tracked — it has no real values)
 .env
 .env.local
 .env.*
+!.env.example
 
 # Runtime data — not source code, not for public repos
 dify/
