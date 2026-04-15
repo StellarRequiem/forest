@@ -40,7 +40,6 @@ RUN useradd -m -u 1000 forest
 USER forest
 
 COPY --chown=forest:forest . /app
-COPY --chown=forest:forest streamlit_config.toml ~/.streamlit/config.toml
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Database & Cache
+*.db
+*.sqlite
+*.rdb
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Dify volumes (large)
+dify/volumes/
+
+# Test artifacts
+.pytest_cache/
+*.log
+
+# Vault (local only)
+ForestVault/
+
