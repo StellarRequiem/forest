@@ -13,8 +13,9 @@ Each **swarm cycle** runs three workers in sequence:
 | Worker | Data source | Model |
 |---|---|---|
 | `network_watcher` | `netstat` — connection states, listening ports, external IPs | qwen2.5:3b |
-| `log_anomaly_specialist` | macOS unified log — errors/faults from last 5 minutes | phi3:mini |
-| `threat_pattern_detector` | `psutil` — top CPU/memory processes, system load | phi3:mini |
+| `log_anomaly_specialist` | macOS unified log — errors/faults from last 5 minutes | llama3.2:3b |
+| `threat_pattern_detector` | `psutil` — top CPU/memory processes, system load | llama3.2:3b |
+| `semantic_drift_detector` | system fingerprint — ports + process list, embedded + compared | nomic-embed-text |
 
 Each worker's output is:
 1. **Constitution-checked** — `qwen2.5:3b` at temp 0.0 judges whether output is defensive observation or attack instruction. Blocked outputs are logged and rejected.
@@ -230,7 +231,8 @@ The hash covers the full line content. Run `./bin/forest-audit` to verify none h
 | Model | Size | Role |
 |---|---|---|
 | `qwen2.5:3b` | 1.9 GB | Network analysis, constitution judge |
-| `phi3:mini` | 2.2 GB | Log analysis, threat assessment |
+| `llama3.2:3b` | 2.0 GB | Log analysis, threat assessment |
+| `nomic-embed-text` | 274 MB | Semantic drift detection (embeddings) |
 | `qwen2:0.5b` | 352 MB | Fast fallback |
 
 All models run locally. No API keys, no cloud calls.

@@ -94,7 +94,7 @@ if [[ -z "${OLLAMA_MISSING:-}" ]]; then
     echo "  You can Ctrl-C and resume later — already-pulled models are skipped."
     echo ""
 
-    for model in "qwen2.5:3b" "phi3:mini" "qwen2:0.5b"; do
+    for model in "qwen2.5:3b" "llama3.2:3b" "nomic-embed-text" "qwen2:0.5b"; do
         echo -n "  Pulling $model ... "
         if ollama pull "$model" 2>&1 | tail -1 | grep -q "already"; then
             ok "already present"

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Forest CUS LangGraph v5.1 — Baseline delta detection added.
+Forest CUS LangGraph v5.2 — llama3.2:3b + semantic drift detection.
 
-Changes from v5.0:
-  - Imports baseline engine; creates ~/ForestVault/baseline.json on first run
-  - Workers inject [DELTA] block into LLM prompt when ports/processes change
-  - --update-baseline flag refreshes the baseline from current observations
-  - Version bump to v5.1
+Changes from v5.1:
+  - LogAnomalySpecialist and ThreatPatternDetector upgraded phi3:mini → llama3.2:3b
+  - SemanticDriftDetector added as 4th worker (nomic-embed-text embeddings,
+    cosine similarity against rolling 20-cycle window)
+  - WORKER_DEFS updated to reflect new models
 """
 
 import argparse
@@ -42,11 +42,11 @@ except ImportError:
 
 try:
     from core.workers import WORKER_REGISTRY
-    print("✅ Workers v1.2 loaded (network / log / threat + baseline delta)")
+    print(f"✅ Workers v1.3 loaded ({len(WORKER_REGISTRY)} workers: {', '.join(WORKER_REGISTRY)})")
 except ImportError:
     try:
         from workers import WORKER_REGISTRY
-        print("✅ Workers v1.2 loaded (relative import)")
+        print(f"✅ Workers v1.3 loaded (relative import, {len(WORKER_REGISTRY)} workers)")
     except ImportError:
         WORKER_REGISTRY = {}
         print("⚠️  Workers not found — will use fallback stubs")
@@ -76,9 +76,10 @@ MAX_PROPOSALS = 20
 
 # Worker definitions: (registry_key, model, role_description)
 WORKER_DEFS = [
-    ("network_watcher",        "qwen2.5:3b",  "Passive network monitor"),
-    ("log_anomaly_specialist", "phi3:mini",   "Log anomaly detection"),
-    ("threat_pattern_detector","phi3:mini",   "Threat pattern detection"),
+    ("network_watcher",         "qwen2.5:3b",       "Passive network monitor"),
+    ("log_anomaly_specialist",  "llama3.2:3b",      "Log anomaly detection"),
+    ("threat_pattern_detector", "llama3.2:3b",      "Threat pattern detection"),
+    ("semantic_drift_detector", "nomic-embed-text", "Behavioral drift detection"),
 ]
 
 
@@ -153,7 +154,7 @@ def worker_node(state: CUSState) -> dict:
         print("[CUS] Idle mode — workers skipped")
         return {"understory_results": [], "ecosystem_summary": "IDLE MODE"}
 
-    print(f"\n[CUS v5.0] Running {len(WORKER_DEFS)} workers — LVL{state['level']}...")
+    print(f"\n[CUS v5.2] Running {len(WORKER_DEFS)} workers — LVL{state['level']}...")
     results   = []
     approvals = []
     blocked   = state.get("blocked_count", 0)
@@ -216,7 +217,7 @@ def worker_node(state: CUSState) -> dict:
     total_blocked  = sum(1 for r in results if "BLOCKED" in r)
 
     summary = (
-        f"CUS v5.0 LVL{state['level']} cycle complete — "
+        f"CUS v5.2 LVL{state['level']} cycle complete — "
         f"{len(results)} workers | "
         f"{total_promoted} promoted | "
         f"{total_blocked} blocked"
@@ -297,7 +298,7 @@ def run_cus_swarm(level: int = 1,
                   task: str = "Blue-team monitoring cycle",
                   update_baseline: bool = False) -> dict:
     print(f"\n{'='*60}")
-    print(f"  🌲 Forest CUS LangGraph v5.1")
+    print(f"  🌲 Forest CUS LangGraph v5.2")
     print(f"  Task : {task}")
     print(f"  Level: {level}")
     print(f"{'='*60}")

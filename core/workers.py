@@ -58,6 +58,14 @@ except ImportError:
     except ImportError:
         _intel = None
 
+try:
+    from core.drift import SemanticDriftDetector
+except ImportError:
+    try:
+        from drift import SemanticDriftDetector
+    except ImportError:
+        SemanticDriftDetector = None
+
 # ── shared helpers ────────────────────────────────────────────────────────────
 
 def _call_llm(model: str, prompt: str, max_tokens: int = 180) -> str:
@@ -240,12 +248,12 @@ class NetworkWatcher:
 
 class LogAnomalySpecialist:
     """
-    Pulls recent macOS system log errors/faults and asks phi3:mini to flag
+    Pulls recent macOS system log errors/faults and asks llama3.2:3b to flag
     anomalies. Filters out high-volume macOS internal service noise so the
     LLM sees signal, not noise.
     """
 
-    MODEL = "phi3:mini"
+    MODEL = "llama3.2:3b"
     NAME  = "log_anomaly_specialist"
     MAX_LOG_CHARS = 2000
 
@@ -330,10 +338,10 @@ class LogAnomalySpecialist:
 class ThreatPatternDetector:
     """
     Samples running processes (top CPU + memory consumers) and asks
-    phi3:mini to assess whether any look suspicious or anomalous.
+    llama3.2:3b to assess whether any look suspicious or anomalous.
     """
 
-    MODEL = "phi3:mini"
+    MODEL = "llama3.2:3b"
     NAME  = "threat_pattern_detector"
 
     def run(self) -> str:
@@ -439,10 +447,14 @@ class ThreatPatternDetector:
 # ── Registry (used by cus_langgraph) ─────────────────────────────────────────
 
 WORKER_REGISTRY = {
-    "network_watcher":       NetworkWatcher,
-    "log_anomaly_specialist": LogAnomalySpecialist,
+    "network_watcher":         NetworkWatcher,
+    "log_anomaly_specialist":  LogAnomalySpecialist,
     "threat_pattern_detector": ThreatPatternDetector,
 }
+
+# SemanticDriftDetector is imported from core.drift — add it if available
+if SemanticDriftDetector is not None:
+    WORKER_REGISTRY["semantic_drift_detector"] = SemanticDriftDetector
 
 
 # ── Quick smoke-test ──────────────────────────────────────────────────────────
