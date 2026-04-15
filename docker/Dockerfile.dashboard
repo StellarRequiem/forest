@@ -1,54 +1,43 @@
-# Multi-stage Dockerfile for forest-dashboard
-# Streamlit UI
+# Forest Dashboard — docker/Dockerfile.dashboard
+# Runs the Streamlit dashboard on port 8501.
+# ForestVault is provided via a bind-mount from the host at /root/ForestVault.
 
-FROM python:3.10-slim AS builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    git \
+        build-essential curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-# ==============================================================================
-# Runtime stage
-FROM python:3.10-slim
+# ── Runtime ────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 \
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    FOREST_PATH=/app
+    PYTHONDONTWRITEBYTECODE=1
 
-# Non-root user
-RUN useradd -m -u 1000 forest
-USER forest
+# Run as root so Path.home() → /root and the ForestVault bind-mount at
+# /root/ForestVault works without any env-var overrides.
+COPY . /app
 
-COPY --chown=forest:forest . /app
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import streamlit; print('OK')" || exit 1
-
-LABEL org.opencontainers.image.title="Forest Dashboard" \
-      org.opencontainers.image.description="Forest decision visualization dashboard" \
-      org.opencontainers.image.version="1.0.0-alpha"
-
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -sf http://localhost:8501/_stcore/health || exit 1
 
 EXPOSE 8501
+
+CMD ["streamlit", "run", "dashboard/app.py", \
+     "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

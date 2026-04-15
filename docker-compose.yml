@@ -1,7 +1,22 @@
 version: '3.8'
 
+# Forest CUS — Docker Compose
+#
+# Starts two long-running services:
+#   ollama      — local LLM inference on port 11434
+#   dashboard   — Streamlit UI on port 8501
+#
+# The swarm runner (core/cus_langgraph.py) must be run locally because it
+# needs access to the host's netstat, system logs, and process list.
+#
+# Usage:
+#   docker-compose up -d            # start in background
+#   docker-compose logs -f          # follow logs
+#   docker-compose down             # stop
+
 services:
-  # Ollama - Local LLM inference
+
+  # ── Ollama — local LLM inference ──────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
     container_name: forest-ollama
@@ -12,160 +27,15 @@ services:
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-
-  # Redis - Caching and state
-  redis:
-    image: redis:7-alpine
-    container_name: forest-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-
-  # PostgreSQL - Audit database
-  postgres:
-    image: postgres:15-alpine
-    container_name: forest-postgres
-    ports:
-      - "5432:5432"
-    environment:
-      POSTGRES_DB: forest_audit
-      POSTGRES_USER: forest
-      POSTGRES_PASSWORD: forest_dev_password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U forest"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  # Forest Core - CUS Orchestration
-  forest-core:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.core
-    container_name: forest-core
-    ports:
-      - "8000:8000"
-    environment:
-      - FOREST_PATH=/app
-      - DATABASE_URL=postgresql://forest:forest_dev_password@postgres:5432/forest_audit
-      - REDIS_URL=redis://redis:6379
-      - OLLAMA_HOST=http://ollama:11434
-    volumes:
-      - ./Forest:/app
-      - forest_vault:/home/forest/.ForestVault
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      ollama:
-        condition: service_healthy
-    networks:
-      - forest_network
-    healthcheck:
-      test: ["CMD", "python", "-c", "from forest_core import get_middleware; print('OK')"]
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/api/tags"]
       interval: 30s
       timeout: 10s
+      start_period: 15s
       retries: 3
+    restart: unless-stopped
 
-  # Forest Training - Code Generation
-  forest-training:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.training
-    container_name: forest-training
-    ports:
-      - "8001:8001"
-    environment:
-      - FOREST_PATH=/app
-      - OLLAMA_HOST=http://ollama:11434
-      - HF_HOME=/cache/huggingface
-    volumes:
-      - ./Forest:/app
-      - model_cache:/cache
-      - forest_vault:/home/forest/.ForestVault
-    depends_on:
-      ollama:
-        condition: service_healthy
-    networks:
-      - forest_network
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '1'
-          memory: 1G
-
-  # Forest Network - Monitoring
-  forest-network:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.network
-    container_name: forest-network
-    ports:
-      - "9090:9090"
-    environment:
-      - FOREST_PATH=/app
-      - DATABASE_URL=postgresql://forest:forest_dev_password@postgres:5432/forest_audit
-    volumes:
-      - ./Forest:/app
-      - forest_vault:/home/forest/.ForestVault
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - forest_network
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-    healthcheck:
-      test: ["CMD", "python", "-c", "from forest_network import NetworkScanner; print('OK')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Forest Audit - Logging
-  forest-audit:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.audit
-    container_name: forest-audit
-    ports:
-      - "8002:8002"
-    environment:
-      - FOREST_PATH=/app
-      - DATABASE_URL=postgresql://forest:forest_dev_password@postgres:5432/forest_audit
-    volumes:
-      - ./Forest:/app
-      - audit_logs:/app/audit_logs
-      - forest_vault:/home/forest/.ForestVault
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - forest_network
-    healthcheck:
-      test: ["CMD", "python", "-c", "from forest_audit import AuditLogger; print('OK')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # Forest Dashboard - UI
-  forest-dashboard:
+  # ── Dashboard — Streamlit UI ───────────────────────────────────────────────
+  dashboard:
     build:
       context: .
       dockerfile: docker/Dockerfile.dashboard
@@ -174,31 +44,29 @@ services:
       - "8501:8501"
     environment:
       - FOREST_PATH=/app
-      - DATABASE_URL=postgresql://forest:forest_dev_password@postgres:5432/forest_audit
-      - REDIS_URL=redis://redis:6379
+      - OLLAMA_HOST=http://ollama:11434
     volumes:
-      - ./Forest:/app
-      - forest_vault:/home/forest/.ForestVault
+      # Mount the host's ForestVault so Docker dashboard reads live swarm data
+      - type: bind
+        source: ${HOME}/ForestVault
+        target: /root/ForestVault
+    command:
+      - streamlit
+      - run
+      - dashboard/app.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
     depends_on:
-      - forest-core
-      - postgres
-      - redis
-    networks:
-      - forest_network
+      ollama:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8501/_stcore/health"]
       interval: 30s
       timeout: 10s
+      start_period: 20s
       retries: 3
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
-  redis_data:
   ollama_data:
-  model_cache:
-  audit_logs:
-  forest_vault:
-
-networks:
-  forest_network:
-    driver: bridge
