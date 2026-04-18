@@ -31,3 +31,7 @@ anthropic>=0.40
 
 # cus-core grading framework (local install)
 cus-core @ file:///Users/llm01/Projects/cus-core
+
+# Forest Status API (port 7438 — read-only status for buddy integration)
+fastapi>=0.100
+uvicorn[standard]>=0.30
