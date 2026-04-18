@@ -45,6 +45,7 @@ services:
     environment:
       - FOREST_PATH=/app
       - OLLAMA_HOST=http://ollama:11434
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     volumes:
       # Mount the host's ForestVault so Docker dashboard reads live swarm data
       - type: bind
